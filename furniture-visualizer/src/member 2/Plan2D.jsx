@@ -36,6 +36,7 @@ export default function Plan2D({
   globalShade,
   activeTool,
   readOnly,
+  catalogPointerDragItemId,
   onSelectRoom,
   onSelectItem,
   onStartAction,
@@ -46,6 +47,7 @@ export default function Plan2D({
 }) {
   const stageRef = useRef(null)
   const [size, setSize] = useState({ width: 0, height: 0 })
+  const [isCatalogDropActive, setIsCatalogDropActive] = useState(false)
   const dragRef = useRef(null)
   const latestItemsRef = useRef(items)
 
@@ -84,6 +86,21 @@ export default function Plan2D({
     event.dataTransfer?.getData('application/x-roomcraft-catalog-item') ||
     event.dataTransfer?.getData('text/plain') ||
     ''
+
+  const resolveCatalogDropFromPoint = (clientX, clientY) => {
+    if (!stageRef.current || !scale) return null
+    const rect = stageRef.current.getBoundingClientRect()
+    const pointer = { x: clientX - rect.left, y: clientY - rect.top }
+    if (
+      pointer.x < 0 ||
+      pointer.x > rect.width ||
+      pointer.y < 0 ||
+      pointer.y > rect.height
+    ) {
+      return null
+    }
+    return resolveRoomDropTarget(pointer)
+  }
 
   const resolveRoomDropTarget = (pointer) => {
     for (const room of rooms) {
@@ -264,9 +281,57 @@ export default function Plan2D({
     onInvalidPlacement,
   ])
 
+  useEffect(() => {
+    if (readOnly || !onDropCatalogItem || !catalogPointerDragItemId) {
+      setIsCatalogDropActive(false)
+      return
+    }
+
+    const handlePointerMove = (event) => {
+      setIsCatalogDropActive(
+        Boolean(resolveCatalogDropFromPoint(event.clientX, event.clientY)),
+      )
+    }
+
+    const handlePointerUp = (event) => {
+      const dropTarget = resolveCatalogDropFromPoint(event.clientX, event.clientY)
+      setIsCatalogDropActive(false)
+      if (!dropTarget?.room) return
+      onSelectRoom?.(dropTarget.room.id)
+      onDropCatalogItem(catalogPointerDragItemId, {
+        roomId: dropTarget.room.id,
+        centerX: dropTarget.centerX ?? dropTarget.room.width / 2,
+        centerY: dropTarget.centerY ?? dropTarget.room.depth / 2,
+      })
+    }
+
+    const handlePointerCancel = () => {
+      setIsCatalogDropActive(false)
+    }
+
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', handlePointerUp)
+    window.addEventListener('pointercancel', handlePointerCancel)
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', handlePointerUp)
+      window.removeEventListener('pointercancel', handlePointerCancel)
+    }
+  }, [
+    catalogPointerDragItemId,
+    onDropCatalogItem,
+    onSelectRoom,
+    readOnly,
+    rooms,
+    scale,
+    offsetX,
+    offsetY,
+  ])
+
   return (
     <div
-      className="plan-stage"
+      className={`plan-stage${isCatalogDropActive ? ' is-catalog-drop-active' : ''}`}
       ref={stageRef}
       onPointerDown={() => onSelectItem?.(null)}
       onDragOver={(event) => {

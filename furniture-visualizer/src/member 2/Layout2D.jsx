@@ -13,6 +13,7 @@ export default function Layout2D({
   globalShade,
   activeTool,
   readOnly,
+  catalogPointerDragItemId,
   onSelect,
   onStartAction,
   onPreviewChange,
@@ -22,6 +23,7 @@ export default function Layout2D({
 }) {
   const stageRef = useRef(null)
   const [size, setSize] = useState({ width: 0, height: 0 })
+  const [isCatalogDropActive, setIsCatalogDropActive] = useState(false)
   const dragRef = useRef(null)
   const latestItemsRef = useRef(items)
 
@@ -62,6 +64,24 @@ export default function Layout2D({
     event.dataTransfer?.getData('application/x-roomcraft-catalog-item') ||
     event.dataTransfer?.getData('text/plain') ||
     ''
+
+  const resolveCatalogDropFromPoint = (clientX, clientY) => {
+    if (!stageRef.current || !scale) return null
+    const rect = stageRef.current.getBoundingClientRect()
+    const pointer = { x: clientX - rect.left, y: clientY - rect.top }
+    if (
+      pointer.x < 0 ||
+      pointer.x > rect.width ||
+      pointer.y < 0 ||
+      pointer.y > rect.height
+    ) {
+      return null
+    }
+    const centerX = clamp((pointer.x - offsetX) / scale, 0, room.width)
+    const centerY = clamp((pointer.y - offsetY) / scale, 0, room.depth)
+    if (!isPointInsideRoom(room, centerX, centerY)) return null
+    return { centerX, centerY }
+  }
 
   const resolveMode = (mode) => {
     if (mode !== 'move') return mode
@@ -215,9 +235,55 @@ export default function Layout2D({
     onInvalidPlacement,
   ])
 
+  useEffect(() => {
+    if (readOnly || !onDropCatalogItem || !catalogPointerDragItemId) {
+      setIsCatalogDropActive(false)
+      return
+    }
+
+    const handlePointerMove = (event) => {
+      setIsCatalogDropActive(
+        Boolean(resolveCatalogDropFromPoint(event.clientX, event.clientY)),
+      )
+    }
+
+    const handlePointerUp = (event) => {
+      const placement = resolveCatalogDropFromPoint(event.clientX, event.clientY)
+      setIsCatalogDropActive(false)
+      if (!placement) return
+      onDropCatalogItem(catalogPointerDragItemId, {
+        roomId: room.id,
+        centerX: placement.centerX,
+        centerY: placement.centerY,
+      })
+    }
+
+    const handlePointerCancel = () => {
+      setIsCatalogDropActive(false)
+    }
+
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', handlePointerUp)
+    window.addEventListener('pointercancel', handlePointerCancel)
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', handlePointerUp)
+      window.removeEventListener('pointercancel', handlePointerCancel)
+    }
+  }, [
+    catalogPointerDragItemId,
+    onDropCatalogItem,
+    readOnly,
+    room,
+    scale,
+    offsetX,
+    offsetY,
+  ])
+
   return (
     <div
-      className="layout-stage"
+      className={`layout-stage${isCatalogDropActive ? ' is-catalog-drop-active' : ''}`}
       ref={stageRef}
       onPointerDown={() => onSelect?.(null)}
       onDragOver={(event) => {

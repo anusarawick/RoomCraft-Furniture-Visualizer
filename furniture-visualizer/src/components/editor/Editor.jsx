@@ -323,6 +323,7 @@ export default function Editor({
   const [activeRoomId, setActiveRoomId] = useState(
     () => design?.rooms?.[0]?.id || design?.room?.id || null,
   )
+  const [catalogPointerDrag, setCatalogPointerDrag] = useState(null)
   const statusTimer = useRef(null)
   const [exportDialogOpen, setExportDialogOpen] = useState(false)
   const [exportView, setExportView] = useState('2d')
@@ -355,6 +356,7 @@ export default function Editor({
     setPanelEditActive(false)
     setExportDialogOpen(false)
     setExporting(false)
+    setCatalogPointerDrag(null)
   }, [design?.id, initialViewMode])
 
   useEffect(() => {
@@ -380,6 +382,69 @@ export default function Editor({
       setSelectedId(null)
     }
   }, [activeRoomId, design?.items, selectedId])
+
+  useEffect(() => {
+    if (!catalogPointerDrag) return
+
+    const movementThreshold = 6
+
+    const handlePointerMove = (event) => {
+      setCatalogPointerDrag((current) => {
+        if (!current) return null
+        if (
+          Number.isFinite(current.pointerId) &&
+          Number.isFinite(event.pointerId) &&
+          current.pointerId !== event.pointerId
+        ) {
+          return current
+        }
+        const dx = event.clientX - current.startX
+        const dy = event.clientY - current.startY
+        const dragging =
+          current.dragging ||
+          dx * dx + dy * dy >= movementThreshold * movementThreshold
+        if (
+          current.currentX === event.clientX &&
+          current.currentY === event.clientY &&
+          current.dragging === dragging
+        ) {
+          return current
+        }
+        return {
+          ...current,
+          currentX: event.clientX,
+          currentY: event.clientY,
+          dragging,
+        }
+      })
+    }
+
+    const clearPointerDrag = (event) => {
+      window.setTimeout(() => {
+        setCatalogPointerDrag((current) => {
+          if (!current) return null
+          if (
+            Number.isFinite(current.pointerId) &&
+            Number.isFinite(event.pointerId) &&
+            current.pointerId !== event.pointerId
+          ) {
+            return current
+          }
+          return null
+        })
+      }, 0)
+    }
+
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', clearPointerDrag)
+    window.addEventListener('pointercancel', clearPointerDrag)
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', clearPointerDrag)
+      window.removeEventListener('pointercancel', clearPointerDrag)
+    }
+  }, [catalogPointerDrag])
 
   if (!design) {
     return (
@@ -587,6 +652,19 @@ export default function Editor({
     }
   }
 
+  const handleCatalogPointerStart = (event, catalogItemId) => {
+    if (!canEdit || event.button !== 0) return
+    setCatalogPointerDrag({
+      itemId: catalogItemId,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      currentX: event.clientX,
+      currentY: event.clientY,
+      dragging: false,
+    })
+  }
+
   const handleDropCatalogItem = (catalogItemId, placement = {}) => {
     if (!canEdit) return
     const catalogItem = catalog.find((entry) => entry.id === catalogItemId)
@@ -610,6 +688,10 @@ export default function Editor({
     event.preventDefault()
     handleDropCatalogItem(catalogItemId)
   }
+
+  const catalogPointerDragItemId =
+    canEdit && catalogPointerDrag?.dragging ? catalogPointerDrag.itemId : ''
+  const draggedCatalogItem = catalog.find((item) => item.id === catalogPointerDragItemId) || null
 
   const handleDeleteItem = () => {
     if (!canEdit || !selectedItem) return
@@ -1127,14 +1209,23 @@ export default function Editor({
           </p>
           <div className="furniture-list">
             {catalog.filter((item) => !item.hidden).map((item) => (
-              <button
+              <div
                 key={item.id}
-                className="furniture-item"
-                onClick={() => handleAddItem(item)}
-                onDragStart={(event) => handleCatalogDragStart(event, item.id)}
-                type="button"
-                draggable={canEdit}
-                disabled={!canEdit}
+                className={`furniture-item${!canEdit ? ' is-disabled' : ''}${
+                  catalogPointerDragItemId === item.id ? ' is-dragging' : ''
+                }`}
+                onClick={() => canEdit && handleAddItem(item)}
+                onPointerDown={(event) => handleCatalogPointerStart(event, item.id)}
+                onKeyDown={(event) => {
+                  if (!canEdit) return
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    handleAddItem(item)
+                  }
+                }}
+                role="button"
+                tabIndex={canEdit ? 0 : -1}
+                aria-disabled={!canEdit}
               >
                 <div className="furniture-preview">
                   <FurnitureThumbnail item={item} />
@@ -1145,7 +1236,7 @@ export default function Editor({
                     {item.width} x {item.depth}
                   </div>
                 </div>
-              </button>
+              </div>
             ))}
           </div>
         </aside>
@@ -1185,6 +1276,7 @@ export default function Editor({
                       onCommitChange={(items) => {
                         updateDesign({ ...design, items }, 'Plan updated')
                       }}
+                      catalogPointerDragItemId={catalogPointerDragItemId}
                       onDropCatalogItem={handleDropCatalogItem}
                       onInvalidPlacement={(message, fallbackItems) => {
                         if (fallbackItems) {
@@ -1212,6 +1304,7 @@ export default function Editor({
                           'Layout updated',
                         )
                       }}
+                      catalogPointerDragItemId={catalogPointerDragItemId}
                       onDropCatalogItem={handleDropCatalogItem}
                       onInvalidPlacement={(message, fallbackItems) => {
                         if (fallbackItems) {
@@ -1277,6 +1370,7 @@ export default function Editor({
                   onCommitChange={(items) => {
                     updateDesign({ ...design, items }, 'Plan updated')
                   }}
+                  catalogPointerDragItemId={catalogPointerDragItemId}
                   onDropCatalogItem={handleDropCatalogItem}
                   onInvalidPlacement={(message, fallbackItems) => {
                     if (fallbackItems) {
@@ -1304,6 +1398,7 @@ export default function Editor({
                       'Layout updated',
                     )
                   }}
+                  catalogPointerDragItemId={catalogPointerDragItemId}
                   onDropCatalogItem={handleDropCatalogItem}
                   onInvalidPlacement={(message, fallbackItems) => {
                     if (fallbackItems) {
@@ -1708,6 +1803,21 @@ export default function Editor({
           )}
         </aside>
       </div>
+      {draggedCatalogItem && catalogPointerDrag?.dragging && (
+        <div
+          className="catalog-drag-preview"
+          style={{
+            left: catalogPointerDrag.currentX + 18,
+            top: catalogPointerDrag.currentY + 18,
+          }}
+          aria-hidden="true"
+        >
+          <div className="catalog-drag-preview-thumb">
+            <FurnitureThumbnail item={draggedCatalogItem} />
+          </div>
+          <div className="catalog-drag-preview-copy">{draggedCatalogItem.name}</div>
+        </div>
+      )}
       {exportDialogOpen && (
         <div className="export-dialog-backdrop" onClick={() => !exporting && setExportDialogOpen(false)}>
           <div

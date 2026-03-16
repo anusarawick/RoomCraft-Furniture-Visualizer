@@ -230,5 +230,13 @@ export default function FurnitureThumbnail({ item }) {
     return <OpeningThumbnail item={item} />
   }
 
-  return <img className="furniture-preview-image" src={thumbnail} alt="" aria-hidden="true" />
+  return (
+    <img
+      className="furniture-preview-image"
+      src={thumbnail}
+      alt=""
+      aria-hidden="true"
+      draggable={false}
+    />
+  )
 }
