@@ -33,7 +33,7 @@ export const createWallMaterial = (color, isInside = false) =>
   new THREE.MeshStandardMaterial({
     color,
     roughness: 0.7,
-    side: isInside ? THREE.BackSide : THREE.DoubleSide,
+    side: THREE.DoubleSide,
     transparent: !isInside,
     opacity: isInside ? 1 : DEFAULT_WALL_OPACITY,
     depthWrite: isInside,
@@ -64,8 +64,16 @@ export const resolveModelSource = (modelInfo, catalogItem) => {
   return modelInfo.scene
 }
 
-const OPENING_WALLS = new Set(['top', 'bottom', 'left', 'right'])
+const OPENING_WALLS = new Set([
+  'top',
+  'bottom',
+  'left',
+  'right',
+  'inner-horizontal',
+  'inner-vertical',
+])
 const OPENING_SURFACE_INSET = 0.01
+const HORIZONTAL_OPENING_WALLS = new Set(['top', 'bottom', 'inner-horizontal'])
 
 const resolveOpeningWall = (item, room) => {
   if (OPENING_WALLS.has(item?.openingWall)) return item.openingWall
@@ -102,7 +110,7 @@ export const createOpeningObject = ({
   const width = Math.max(0.12, item.width || 0.2)
   const depth = Math.max(0.12, item.depth || 0.2)
   const openingWall = resolveOpeningWall(item, room)
-  const isHorizontalWall = openingWall === 'top' || openingWall === 'bottom'
+  const isHorizontalWall = HORIZONTAL_OPENING_WALLS.has(openingWall)
   const openingSpan = isHorizontalWall ? width : depth
   const wallThickness = isHorizontalWall ? depth : width
   const fallbackColor = isConflict ? '#ef4444' : item.color || '#d7c7b2'
@@ -117,7 +125,7 @@ export const createOpeningObject = ({
   const group = new THREE.Group()
   const wallMount = new THREE.Group()
 
-  if (openingWall === 'top') {
+  if (openingWall === 'top' || openingWall === 'inner-horizontal') {
     wallMount.position.z = -depth / 2 + OPENING_SURFACE_INSET
   } else if (openingWall === 'bottom') {
     wallMount.position.z = depth / 2 - OPENING_SURFACE_INSET

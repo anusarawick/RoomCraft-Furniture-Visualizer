@@ -6,6 +6,7 @@ import { isOpeningItem, snapOpeningToRoomWall } from '../../utils/openingPlaceme
 import { hasItemCollision } from '../../utils/collision'
 import { clampItemWithinRoom, normalizeRotation } from '../../utils/rotationBounds'
 import { DEFAULT_WALL_OPACITY, OPEN_WALL_OPACITY } from './viewportHelpers'
+import { clampPointWithinRoom } from '../../utils/roomShape'
 
 export const setupSceneRuntime = ({ container, controlMode, refs }) => {
   const roomData = refs.latestRoomRef.current
@@ -62,6 +63,7 @@ export const setupSceneRuntime = ({ container, controlMode, refs }) => {
   refs.rendererRef.current = renderer
   refs.controlsRef.current = controls
   refs.lightsRef.current = { ambient, keyLight, fillLight }
+  const wallRaycaster = new THREE.Raycaster()
 
   const handleResize = () => {
     const width = container.clientWidth
@@ -75,20 +77,27 @@ export const setupSceneRuntime = ({ container, controlMode, refs }) => {
     const walls = refs.wallsRef.current
     if (!walls) return
     if (refs.controlModeRef.current === 'inside') return
-    const axis = Math.abs(camera.position.x) > Math.abs(camera.position.z) ? 'x' : 'z'
-    const openWall =
-      axis === 'x'
-        ? camera.position.x >= 0
-          ? 'right'
-          : 'left'
-        : camera.position.z >= 0
-          ? 'front'
-          : 'back'
-    if (refs.activeWallRef.current === openWall) return
-    refs.activeWallRef.current = openWall
+    const target = controls.target?.clone?.() || new THREE.Vector3(0, 0, 0)
+    const direction = target.clone().sub(camera.position)
+    const maxDistance = direction.length()
+    if (maxDistance <= 0.001) return
+
+    wallRaycaster.set(camera.position, direction.normalize())
+    const wallMeshes = Object.values(walls).filter(Boolean)
+    const openWalls = new Set(
+      wallRaycaster
+        .intersectObjects(wallMeshes, false)
+        .filter((hit) => hit.distance < maxDistance - 0.05)
+        .map((hit) => hit.object?.userData?.wallKey)
+        .filter(Boolean),
+    )
+
+    const openWallSignature = [...openWalls].sort().join('|')
+    if (refs.activeWallRef.current === openWallSignature) return
+    refs.activeWallRef.current = openWallSignature
     Object.entries(walls).forEach(([key, wall]) => {
       if (!wall?.material) return
-      wall.material.opacity = key === openWall ? OPEN_WALL_OPACITY : DEFAULT_WALL_OPACITY
+      wall.material.opacity = openWalls.has(key) ? OPEN_WALL_OPACITY : DEFAULT_WALL_OPACITY
     })
   }
 
@@ -116,11 +125,15 @@ export const setupSceneRuntime = ({ container, controlMode, refs }) => {
 
     const roomData = refs.latestRoomRef.current
     const padding = 0.3
-    const halfWidth = Math.max(0.4, roomData.width / 2 - padding)
-    const halfDepth = Math.max(0.4, roomData.depth / 2 - padding)
     const position = controls.getObject().position
-    position.x = clamp(position.x, -halfWidth, halfWidth)
-    position.z = clamp(position.z, -halfDepth, halfDepth)
+    const roomPoint = clampPointWithinRoom(
+      roomData,
+      position.x + roomData.width / 2,
+      position.z + roomData.depth / 2,
+      padding,
+    )
+    position.x = roomPoint.x - roomData.width / 2
+    position.z = roomPoint.y - roomData.depth / 2
     position.y = clamp(position.y, 1.3, Math.max(1.4, roomData.height - 0.3))
   }
 

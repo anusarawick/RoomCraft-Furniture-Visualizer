@@ -1,4 +1,5 @@
 import { isOpeningItem } from './openingPlacement'
+import { isBoundsInsideRoom } from './roomShape'
 
 const OVERLAP_EPSILON = 0.0001
 const WINDOW_CLEARANCE_BUFFER = 0.06
@@ -100,6 +101,12 @@ export const isPlacementConflicting = (
 
   const candidateRoomId = resolveRoomId(candidate, defaultRoomId)
   const collisionRoom = resolveRoomForItem(candidate, { room, rooms, defaultRoomId })
+  if (
+    collisionRoom &&
+    !isBoundsInsideRoom(collisionRoom, toBounds(candidate))
+  ) {
+    return true
+  }
 
   return items.some((existing) => {
     if (!hasNumericBounds(existing)) return false

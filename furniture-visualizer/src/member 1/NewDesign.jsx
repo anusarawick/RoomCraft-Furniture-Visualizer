@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import ColorSwatchField from '../components/ColorSwatchField'
-import { FLOOR_COLOR_PRESETS, WALL_COLOR_PRESETS } from './constants'
+import { FLOOR_COLOR_PRESETS, ROOM_SHAPES, WALL_COLOR_PRESETS } from './constants'
+import { getRoomClipPath, isLShapedRoom } from '../utils/roomShape'
 
 export default function NewDesign({ onCreate }) {
   const [name, setName] = useState('Living')
@@ -53,7 +54,7 @@ export default function NewDesign({ onCreate }) {
           <div className="field">
             Room Shape
             <div className="tool-group">
-              {['Rectangle', 'L-shaped'].map((option) => (
+              {ROOM_SHAPES.map((option) => (
                 <label key={option} className="tool-group">
                   <input
                     type="radio"
@@ -105,10 +106,21 @@ export default function NewDesign({ onCreate }) {
 
         <div className="form-card card">
           <h3>Room Preview</h3>
-          <div className="preview-box">
-            {planType === 'multi'
-              ? `${roomCount} rooms`
-              : `${width}m x ${depth}m`}
+          <div
+            className={`preview-box ${planType === 'single' && isLShapedRoom({ shape }) ? 'is-l-shaped' : ''}`}
+            style={
+              planType === 'single'
+                ? {
+                    clipPath: getRoomClipPath({
+                      shape,
+                      width: Number(width) || 5,
+                      depth: Number(depth) || 4,
+                    }),
+                  }
+                : undefined
+            }
+          >
+            {planType === 'multi' ? `${roomCount} rooms` : `${width}m x ${depth}m`}
           </div>
         </div>
 

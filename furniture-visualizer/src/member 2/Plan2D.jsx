@@ -4,6 +4,7 @@ import { shadeColor } from '../member 3/color'
 import { isOpeningItem, snapOpeningToRoomWall } from '../utils/openingPlacement'
 import { getCollisionMap, hasItemCollision } from '../utils/collision'
 import { clampItemWithinRoom, normalizeRotation } from '../utils/rotationBounds'
+import { getRoomClipPath, isPointInsideRoom } from '../utils/roomShape'
 
 const PLAN_PADDING = 0.92
 
@@ -100,6 +101,9 @@ export default function Plan2D({
       ) {
         const centerX = clamp((pointer.x - left) / scale, 0, room.width)
         const centerY = clamp((pointer.y - top) / scale, 0, room.depth)
+        if (!isPointInsideRoom(room, centerX, centerY)) {
+          continue
+        }
         return { room, centerX, centerY }
       }
     }
@@ -281,9 +285,7 @@ export default function Plan2D({
         event.stopPropagation()
         const pointer = getPointer(event)
         const dropTarget = resolveRoomDropTarget(pointer)
-        const fallbackRoom =
-          rooms.find((room) => room.id === activeRoomId) || rooms[0] || null
-        const targetRoom = dropTarget?.room || fallbackRoom
+        const targetRoom = dropTarget?.room || null
         if (!targetRoom) return
         onSelectRoom?.(targetRoom.id)
         onDropCatalogItem(catalogItemId, {
@@ -315,6 +317,7 @@ export default function Plan2D({
                 left,
                 top,
                 backgroundColor: room.floorColor,
+                clipPath: getRoomClipPath(room),
               }}
               onPointerDown={(event) => {
                 event.stopPropagation()

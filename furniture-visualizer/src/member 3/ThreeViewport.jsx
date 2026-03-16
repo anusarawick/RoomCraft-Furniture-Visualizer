@@ -231,11 +231,6 @@ export default function ThreeViewport({
     }
   }, [onRenderReady, isLoading, modelVersion, items, room, globalShade, selectedId, controlMode])
 
-  const hintText =
-    controlMode === 'inside'
-      ? 'Click to enter inside view | WASD to move | Mouse to look | Esc to exit'
-      : 'Drag empty space to orbit | Drag item to move | Shift + drag to rotate'
-
   return (
     <div className="three-stage" ref={containerRef}>
       {isLoading && <div className="three-loading">Loading 3D models...</div>}
@@ -244,7 +239,6 @@ export default function ThreeViewport({
           Missing 3D models: {missingModels.join(', ')}
         </div>
       )}
-      <div className="three-hint">{hintText}</div>
     </div>
   )
 }

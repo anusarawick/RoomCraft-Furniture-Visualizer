@@ -8,8 +8,11 @@ export default function ColorSwatchField({
   presets,
   onChange,
   onPresetSelect,
+  onNoneSelect,
   onCustomFocus,
   onCustomBlur,
+  showNoneOption = false,
+  noneActive = false,
   disabled = false,
 }) {
   const normalizedValue = normalizeHex(value)
@@ -32,12 +35,18 @@ export default function ColorSwatchField({
     onChange(nextValue)
   }
 
+  const handleNoneClick = () => {
+    if (disabled || !onNoneSelect) return
+    setShowCustomPicker(false)
+    onNoneSelect()
+  }
+
   return (
     <div className="field color-picker-field">
       <div className="color-picker-label">{label}</div>
       <div className="color-swatch-list" role="list" aria-label={`${label} presets`}>
         {presets.map((preset) => {
-          const isActive = normalizeHex(preset.value) === normalizedValue
+          const isActive = !noneActive && normalizeHex(preset.value) === normalizedValue
           return (
             <button
               key={preset.value}
@@ -51,10 +60,25 @@ export default function ColorSwatchField({
             />
           )
         })}
+        {showNoneOption ? (
+          <button
+            type="button"
+            className={`color-swatch color-swatch-none${noneActive ? ' active' : ''}`}
+            onClick={handleNoneClick}
+            disabled={disabled}
+            aria-label={`Use original ${label.toLowerCase()}`}
+            title="Original colours"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="7" />
+              <path d="M7 17 17 7" />
+            </svg>
+          </button>
+        ) : null}
         <button
           type="button"
           className={`color-swatch color-swatch-custom${
-            showCustomPicker || !isPresetValue ? ' active' : ''
+            !noneActive && (showCustomPicker || !isPresetValue) ? ' active' : ''
           }`}
           onClick={() => !disabled && setShowCustomPicker(true)}
           disabled={disabled}
@@ -66,7 +90,7 @@ export default function ColorSwatchField({
           </svg>
         </button>
       </div>
-      {showCustomPicker ? (
+      {showCustomPicker && !noneActive ? (
         <div className="custom-color-panel">
           <div
             className="custom-color-preview"

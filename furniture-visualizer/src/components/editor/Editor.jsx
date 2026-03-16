@@ -28,6 +28,7 @@ import {
   isOpeningElementType,
   snapOpeningToRoomWall,
 } from '../../utils/openingPlacement'
+import { getRoomPolygonPoints, getRoomWallSegments } from '../../utils/roomShape'
 
 const ICONS = {
   select: (
@@ -234,6 +235,24 @@ const findAvailableOpeningPlacement = ({
   const yAxis = buildPlacementAxis(room.depth, step)
 
   const centerCandidates = [{ x: preferred.x, y: preferred.y }]
+  getRoomWallSegments(room).forEach((segment) => {
+    if (segment.axis === 'horizontal') {
+      const minX = Math.min(segment.x1, segment.x2)
+      const maxX = Math.max(segment.x1, segment.x2)
+      buildPlacementAxis(maxX - minX, step).forEach((offset) => {
+        centerCandidates.push({ x: minX + offset, y: segment.y1 })
+      })
+      centerCandidates.push({ x: (segment.x1 + segment.x2) / 2, y: segment.y1 })
+      return
+    }
+
+    const minY = Math.min(segment.y1, segment.y2)
+    const maxY = Math.max(segment.y1, segment.y2)
+    buildPlacementAxis(maxY - minY, step).forEach((offset) => {
+      centerCandidates.push({ x: segment.x1, y: minY + offset })
+    })
+    centerCandidates.push({ x: segment.x1, y: (segment.y1 + segment.y2) / 2 })
+  })
   xAxis.forEach((x) => {
     centerCandidates.push({ x, y: 0 })
     centerCandidates.push({ x, y: room.depth })
@@ -382,11 +401,28 @@ export default function Editor({
     : []
   const selectedItem = activeRoomItems.find((item) => item.id === selectedId)
   const selectedIsOpening = isOpeningItem(selectedItem)
+  const accentOverrideEnabled = design.accentOverrideEnabled === true
+  const catalogColorMap = useMemo(
+    () => new Map(catalog.map((item) => [item.id, item.color])),
+    [catalog],
+  )
 
   const getRoomItems = (roomId) =>
     design.items.filter(
       (item) => item.roomId === roomId || (!item.roomId && rooms.length === 1),
     )
+
+  const getOriginalItemColor = (item) => catalogColorMap.get(item.type) || item.color
+
+  const buildAccentDesign = (nextColor, enableAccent) => ({
+    ...design,
+    accentColor: nextColor ?? design.accentColor,
+    accentOverrideEnabled: enableAccent,
+    items: design.items.map((item) => ({
+      ...item,
+      color: enableAccent ? nextColor : getOriginalItemColor(item),
+    })),
+  })
 
   const showStatus = (message, type = 'info') => {
     window.clearTimeout(statusTimer.current)
@@ -478,7 +514,7 @@ export default function Editor({
       width: clamp(item.width, 0.2, targetRoom.width),
       depth: clamp(item.depth, 0.2, targetRoom.depth),
       height: item.height,
-      color: item.color,
+      color: accentOverrideEnabled ? design.accentColor : item.color,
       shade: isOpening ? 0.02 : 0.1,
       rotation: 0,
       x: 0,
@@ -662,17 +698,6 @@ export default function Editor({
     updateDesign({ ...design, items: nextItems })
   }
 
-  const applyAccentToAll = () => {
-    if (!canEdit || !design.items.length) return
-    pushHistory(cloneDesign(design))
-    const nextItems = design.items.map((item) => ({
-      ...item,
-      color: design.accentColor,
-    }))
-    commitDesign({ ...design, items: nextItems })
-    showStatus('Accent applied to all items', 'success')
-  }
-
   const applyShadeToAll = () => {
     if (!canEdit || !design.items.length) return
     pushHistory(cloneDesign(design))
@@ -784,14 +809,25 @@ export default function Editor({
       const roomY = Number.isFinite(room.y) ? room.y : 0
       const left = toPxX(roomX)
       const top = toPxY(roomY)
-      const roomWidth = room.width * EXPORT_SCALE
-      const roomDepth = room.depth * EXPORT_SCALE
+      const roomPolygon = getRoomPolygonPoints(room, roomX, roomY).map((point) => ({
+        x: toPxX(point.x),
+        y: toPxY(point.y),
+      }))
 
       ctx.fillStyle = room.floorColor || '#d8c0a8'
-      ctx.fillRect(left, top, roomWidth, roomDepth)
+      ctx.beginPath()
+      roomPolygon.forEach((point, index) => {
+        if (index === 0) {
+          ctx.moveTo(point.x, point.y)
+        } else {
+          ctx.lineTo(point.x, point.y)
+        }
+      })
+      ctx.closePath()
+      ctx.fill()
       ctx.strokeStyle = '#7d6652'
       ctx.lineWidth = 3
-      ctx.strokeRect(left, top, roomWidth, roomDepth)
+      ctx.stroke()
 
       ctx.fillStyle = '#4b3a2d'
       ctx.font = '600 13px Manrope, Segoe UI, sans-serif'
@@ -1625,20 +1661,25 @@ export default function Editor({
                     label="Accent Colour"
                     value={design.accentColor}
                     presets={ACCENT_COLOR_PRESETS}
-                    onChange={(nextColor) => updateDesign({ ...design, accentColor: nextColor })}
+                    showNoneOption
+                    noneActive={!accentOverrideEnabled}
+                    onNoneSelect={() =>
+                      applyInstantPanelChange(
+                        () => updateDesign(buildAccentDesign(design.accentColor, false)),
+                        'Original colours restored',
+                      )
+                    }
+                    onChange={(nextColor) => updateDesign(buildAccentDesign(nextColor, true))}
                     onPresetSelect={(nextColor) =>
                       applyInstantPanelChange(
-                        () => updateDesign({ ...design, accentColor: nextColor }),
-                        'Accent colour updated',
+                        () => updateDesign(buildAccentDesign(nextColor, true)),
+                        'Accent colour applied',
                       )
                     }
                     onCustomFocus={beginPanelEdit}
-                    onCustomBlur={() => endPanelEdit('Accent colour updated')}
+                    onCustomBlur={() => endPanelEdit('Accent colour applied')}
                     disabled={!canEdit}
                   />
-                  <button className="btn btn-ghost" onClick={applyAccentToAll} disabled={!canEdit}>
-                    Apply to all items
-                  </button>
                   <label className="field">
                     Global Shade
                     <input

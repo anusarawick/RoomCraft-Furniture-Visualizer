@@ -1,4 +1,5 @@
 import { clamp } from '../member 2/clamp'
+import { getRoomCutout, isBoundsInsideRoom } from './roomShape'
 
 export const normalizeRotation = (rotation) => {
   const value = Number.isFinite(rotation) ? rotation : 0
@@ -35,11 +36,64 @@ export const clampItemWithinRoom = (item, room) => {
   const centerY = (Number.isFinite(item.y) ? item.y : 0) + depth / 2
   const clampedCenterX = clamp(centerX, halfFootprintX, Math.max(halfFootprintX, roomWidth - halfFootprintX))
   const clampedCenterY = clamp(centerY, halfFootprintY, Math.max(halfFootprintY, roomDepth - halfFootprintY))
-
-  return {
+  const toItemPosition = (nextCenterX, nextCenterY) => ({
     ...item,
     rotation,
-    x: clamp(clampedCenterX - width / 2, 0, Math.max(0, roomWidth - width)),
-    y: clamp(clampedCenterY - depth / 2, 0, Math.max(0, roomDepth - depth)),
+    x: clamp(nextCenterX - width / 2, 0, Math.max(0, roomWidth - width)),
+    y: clamp(nextCenterY - depth / 2, 0, Math.max(0, roomDepth - depth)),
+  })
+
+  const toFootprintBounds = (nextCenterX, nextCenterY) => ({
+    left: nextCenterX - footprint.width / 2,
+    right: nextCenterX + footprint.width / 2,
+    top: nextCenterY - footprint.depth / 2,
+    bottom: nextCenterY + footprint.depth / 2,
+  })
+
+  const baseCandidate = toItemPosition(clampedCenterX, clampedCenterY)
+  if (isBoundsInsideRoom(room, toFootprintBounds(clampedCenterX, clampedCenterY))) {
+    return baseCandidate
   }
+
+  const cutout = getRoomCutout(room)
+  if (!cutout) return baseCandidate
+
+  const candidateCenters = [
+    {
+      x: clamp(
+        cutout.x - footprint.width / 2,
+        halfFootprintX,
+        Math.max(halfFootprintX, roomWidth - halfFootprintX),
+      ),
+      y: clampedCenterY,
+    },
+    {
+      x: clampedCenterX,
+      y: clamp(
+        cutout.bottom + footprint.depth / 2,
+        halfFootprintY,
+        Math.max(halfFootprintY, roomDepth - halfFootprintY),
+      ),
+    },
+  ]
+
+  const validCandidates = candidateCenters.filter((center) =>
+    isBoundsInsideRoom(room, toFootprintBounds(center.x, center.y)),
+  )
+
+  if (!validCandidates.length) {
+    return baseCandidate
+  }
+
+  validCandidates.sort((first, second) => {
+    const firstDistance =
+      (first.x - clampedCenterX) * (first.x - clampedCenterX) +
+      (first.y - clampedCenterY) * (first.y - clampedCenterY)
+    const secondDistance =
+      (second.x - clampedCenterX) * (second.x - clampedCenterX) +
+      (second.y - clampedCenterY) * (second.y - clampedCenterY)
+    return firstDistance - secondDistance
+  })
+
+  return toItemPosition(validCandidates[0].x, validCandidates[0].y)
 }

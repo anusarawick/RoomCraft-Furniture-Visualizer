@@ -4,6 +4,7 @@ import { shadeColor } from '../member 3/color'
 import { isOpeningItem, snapOpeningToRoomWall } from '../utils/openingPlacement'
 import { getCollisionMap, hasItemCollision } from '../utils/collision'
 import { clampItemWithinRoom, normalizeRotation } from '../utils/rotationBounds'
+import { getRoomClipPath, isPointInsideRoom } from '../utils/roomShape'
 
 export default function Layout2D({
   room,
@@ -236,6 +237,7 @@ export default function Layout2D({
         const pointer = getPointer(event)
         const centerX = clamp((pointer.x - offsetX) / scale, 0, room.width)
         const centerY = clamp((pointer.y - offsetY) / scale, 0, room.depth)
+        if (!isPointInsideRoom(room, centerX, centerY)) return
         onDropCatalogItem(catalogItemId, { roomId: room.id, centerX, centerY })
       }}
     >
@@ -247,6 +249,7 @@ export default function Layout2D({
           left: offsetX,
           top: offsetY,
           backgroundColor: room.floorColor,
+          clipPath: getRoomClipPath(room),
         }}
       >
         {items.map((item) => {

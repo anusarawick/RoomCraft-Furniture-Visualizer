@@ -1,3 +1,5 @@
+import { getRoomWallSegments } from './roomShape'
+
 const OPENING_TYPES = new Set(['door', 'window'])
 
 const clampValue = (value, min, max) => Math.min(Math.max(value, min), max)
@@ -19,46 +21,49 @@ export const snapOpeningToRoomWall = (item, room, centerX, centerY) => {
   const roomWidth = Math.max(1, Number(room?.width) || 1)
   const roomDepth = Math.max(1, Number(room?.depth) || 1)
   const { span, thickness } = getOpeningSize(item)
+  const candidates = getRoomWallSegments(room)
+    .map((segment) => {
+      if (segment.axis === 'horizontal') {
+        const width = Math.min(span, segment.length)
+        const depth = Math.min(thickness, roomDepth)
+        const minX = Math.min(segment.x1, segment.x2)
+        const maxX = Math.max(segment.x1, segment.x2)
+        const x = clampValue(centerX - width / 2, minX, Math.max(minX, maxX - width))
+        const y = segment.wall === 'bottom' ? segment.y1 - depth : segment.y1
+        return {
+          wall: segment.wall,
+          x,
+          y,
+          width,
+          depth,
+          distance:
+            Math.abs(centerY - segment.y1) +
+            Math.abs(centerX - clampValue(centerX, minX, maxX)),
+        }
+      }
 
-  const horizontalWidth = Math.min(span, roomWidth)
-  const horizontalDepth = Math.min(thickness, roomDepth)
-  const verticalWidth = Math.min(thickness, roomWidth)
-  const verticalDepth = Math.min(span, roomDepth)
+      const width = Math.min(thickness, roomWidth)
+      const depth = Math.min(span, segment.length)
+      const minY = Math.min(segment.y1, segment.y2)
+      const maxY = Math.max(segment.y1, segment.y2)
+      const y = clampValue(centerY - depth / 2, minY, Math.max(minY, maxY - depth))
+      const x =
+        segment.wall === 'left'
+          ? segment.x1
+          : segment.x1 - width
 
-  const candidates = [
-    {
-      wall: 'top',
-      x: clampValue(centerX - horizontalWidth / 2, 0, roomWidth - horizontalWidth),
-      y: 0,
-      width: horizontalWidth,
-      depth: horizontalDepth,
-      distance: Math.abs(centerY),
-    },
-    {
-      wall: 'bottom',
-      x: clampValue(centerX - horizontalWidth / 2, 0, roomWidth - horizontalWidth),
-      y: roomDepth - horizontalDepth,
-      width: horizontalWidth,
-      depth: horizontalDepth,
-      distance: Math.abs(centerY - roomDepth),
-    },
-    {
-      wall: 'left',
-      x: 0,
-      y: clampValue(centerY - verticalDepth / 2, 0, roomDepth - verticalDepth),
-      width: verticalWidth,
-      depth: verticalDepth,
-      distance: Math.abs(centerX),
-    },
-    {
-      wall: 'right',
-      x: roomWidth - verticalWidth,
-      y: clampValue(centerY - verticalDepth / 2, 0, roomDepth - verticalDepth),
-      width: verticalWidth,
-      depth: verticalDepth,
-      distance: Math.abs(centerX - roomWidth),
-    },
-  ]
+      return {
+        wall: segment.wall,
+        x,
+        y,
+        width,
+        depth,
+        distance:
+          Math.abs(centerX - segment.x1) +
+          Math.abs(centerY - clampValue(centerY, minY, maxY)),
+      }
+    })
+    .filter((candidate) => candidate.width > 0 && candidate.depth > 0)
 
   return candidates.reduce((closest, candidate) =>
     candidate.distance < closest.distance ? candidate : closest,

@@ -16,7 +16,7 @@ export const DEFAULT_ROOM = {
   y: 0,
 }
 
-export const ROOM_SHAPES = ['Rectangle']
+export const ROOM_SHAPES = ['Rectangle', 'L-shaped']
 
 export const WALL_COLOR_PRESETS = [
   { name: 'Soft Ivory', value: '#F5F0EB' },
