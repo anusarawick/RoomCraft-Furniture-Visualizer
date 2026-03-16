@@ -330,15 +330,12 @@ export const setupSceneRuntime = ({ container, controlMode, refs }) => {
           0,
           Math.max(0, roomData.depth - target.depth),
         )
-        const snap = refs.snapRef.current
-        const snappedX = snap.enabled ? Math.round(x / snap.step) * snap.step : x
-        const snappedY = snap.enabled ? Math.round(y / snap.step) * snap.step : y
         nextItems = currentItems.map((item) =>
           item.id === drag.id
             ? {
                 ...item,
-                x: clamp(snappedX, 0, Math.max(0, roomData.width - item.width)),
-                y: clamp(snappedY, 0, Math.max(0, roomData.depth - item.depth)),
+                x: clamp(x, 0, Math.max(0, roomData.width - item.width)),
+                y: clamp(y, 0, Math.max(0, roomData.depth - item.depth)),
               }
             : item,
         )

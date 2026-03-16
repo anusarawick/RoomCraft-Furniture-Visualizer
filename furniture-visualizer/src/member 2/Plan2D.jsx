@@ -33,8 +33,6 @@ export default function Plan2D({
   selectedId,
   globalShade,
   activeTool,
-  snapToGrid = false,
-  snapStep = 0.1,
   readOnly,
   onSelectRoom,
   onSelectItem,
@@ -174,16 +172,8 @@ export default function Plan2D({
             0,
             room.depth - drag.startItem.depth,
           )
-          const x = clamp(
-            snapToGrid ? Math.round(nextX / snapStep) * snapStep : nextX,
-            0,
-            room.width - drag.startItem.width,
-          )
-          const y = clamp(
-            snapToGrid ? Math.round(nextY / snapStep) * snapStep : nextY,
-            0,
-            room.depth - drag.startItem.depth,
-          )
+          const x = clamp(nextX, 0, room.width - drag.startItem.width)
+          const y = clamp(nextY, 0, room.depth - drag.startItem.depth)
           return { ...item, x, y }
         }
         if (drag.mode === 'resize') {
@@ -213,16 +203,8 @@ export default function Plan2D({
               rotation: 0,
             }
           }
-          const width = clamp(
-            snapToGrid ? Math.round(nextWidth / snapStep) * snapStep : nextWidth,
-            minSize,
-            room.width - drag.startItem.x,
-          )
-          const depth = clamp(
-            snapToGrid ? Math.round(nextDepth / snapStep) * snapStep : nextDepth,
-            minSize,
-            room.depth - drag.startItem.y,
-          )
+          const width = clamp(nextWidth, minSize, room.width - drag.startItem.x)
+          const depth = clamp(nextDepth, minSize, room.depth - drag.startItem.y)
           return { ...item, width, depth }
         }
         if (drag.mode === 'rotate') {
@@ -275,8 +257,6 @@ export default function Plan2D({
     onPreviewChange,
     onCommitChange,
     onInvalidPlacement,
-    snapToGrid,
-    snapStep,
   ])
 
   return (

@@ -17,8 +17,6 @@ export default function ThreeViewport({
   globalShade,
   selectedId,
   activeTool,
-  snapToGrid = false,
-  snapStep = 0.1,
   readOnly,
   controlMode = 'orbit',
   onSelect,
@@ -42,7 +40,6 @@ export default function ThreeViewport({
   const pointerRef = useRef(new THREE.Vector2())
   const planeRef = useRef(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0))
   const dragRef = useRef(null)
-  const snapRef = useRef({ enabled: snapToGrid, step: snapStep })
   const latestItemsRef = useRef(items)
   const latestRoomRef = useRef(room)
   const activeToolRef = useRef(activeTool)
@@ -77,10 +74,6 @@ export default function ThreeViewport({
   useEffect(() => {
     controlModeRef.current = controlMode
   }, [controlMode])
-
-  useEffect(() => {
-    snapRef.current = { enabled: snapToGrid, step: snapStep }
-  }, [snapToGrid, snapStep])
 
   useEffect(() => {
     callbacksRef.current = {
@@ -143,7 +136,6 @@ export default function ThreeViewport({
         pointerRef,
         planeRef,
         dragRef,
-        snapRef,
         latestItemsRef,
         latestRoomRef,
         activeToolRef,

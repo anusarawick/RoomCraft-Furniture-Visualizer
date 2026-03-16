@@ -75,7 +75,6 @@ const ICONS = {
   ),
 }
 
-const SNAP_STEP = 0.1
 const ADD_PLACEMENT_STEP = 0.1
 const EXPORT_SCALE = 120
 const EXPORT_PADDING = 56
@@ -297,7 +296,6 @@ export default function Editor({
   const [future, setFuture] = useState([])
   const [panelEditActive, setPanelEditActive] = useState(false)
   const [activeTool, setActiveTool] = useState('select')
-  const [snapToGrid, setSnapToGrid] = useState(true)
   const [activeRoomId, setActiveRoomId] = useState(
     () => design?.rooms?.[0]?.id || design?.room?.id || null,
   )
@@ -954,15 +952,6 @@ export default function Editor({
             Export Plan PNG
           </button>
           <button
-            className={`btn btn-ghost ${snapToGrid ? 'active' : ''}`}
-            onClick={() => setSnapToGrid((prev) => !prev)}
-            type="button"
-            title="Snap furniture to 0.1m grid"
-            disabled={!canEdit}
-          >
-            Snap {snapToGrid ? 'On' : 'Off'}
-          </button>
-          <button
             className="btn btn-primary"
             onClick={() => {
               if (!canEdit) return
@@ -1036,8 +1025,6 @@ export default function Editor({
                       selectedId={selectedId}
                       globalShade={design.globalShade}
                       activeTool={activeTool}
-                      snapToGrid={snapToGrid}
-                      snapStep={SNAP_STEP}
                       readOnly={readOnly}
                       onSelectRoom={setActiveRoomId}
                       onSelectItem={setSelectedId}
@@ -1061,8 +1048,6 @@ export default function Editor({
                       selectedId={selectedId}
                       globalShade={design.globalShade}
                       activeTool={activeTool}
-                      snapToGrid={snapToGrid}
-                      snapStep={SNAP_STEP}
                       readOnly={readOnly}
                       onSelect={setSelectedId}
                       onStartAction={() => pushHistory(cloneDesign(design))}
@@ -1098,8 +1083,6 @@ export default function Editor({
                       globalShade={design.globalShade}
                       selectedId={selectedId}
                       activeTool={activeTool}
-                      snapToGrid={snapToGrid}
-                      snapStep={SNAP_STEP}
                       readOnly={readOnly}
                       onSelect={setSelectedId}
                       onStartAction={() => pushHistory(cloneDesign(design))}
@@ -1134,8 +1117,6 @@ export default function Editor({
                   selectedId={selectedId}
                   globalShade={design.globalShade}
                   activeTool={activeTool}
-                  snapToGrid={snapToGrid}
-                  snapStep={SNAP_STEP}
                   readOnly={readOnly}
                   onSelectRoom={setActiveRoomId}
                   onSelectItem={setSelectedId}
@@ -1159,8 +1140,6 @@ export default function Editor({
                   selectedId={selectedId}
                   globalShade={design.globalShade}
                   activeTool={activeTool}
-                  snapToGrid={snapToGrid}
-                  snapStep={SNAP_STEP}
                   readOnly={readOnly}
                   onSelect={setSelectedId}
                   onStartAction={() => pushHistory(cloneDesign(design))}
@@ -1194,8 +1173,6 @@ export default function Editor({
                   globalShade={design.globalShade}
                   selectedId={selectedId}
                   activeTool={activeTool}
-                  snapToGrid={snapToGrid}
-                  snapStep={SNAP_STEP}
                   readOnly={readOnly}
                   controlMode="inside"
                   onSelect={setSelectedId}
@@ -1229,8 +1206,6 @@ export default function Editor({
                   globalShade={design.globalShade}
                   selectedId={selectedId}
                   activeTool={activeTool}
-                  snapToGrid={snapToGrid}
-                  snapStep={SNAP_STEP}
                   readOnly={readOnly}
                   onSelect={setSelectedId}
                   onStartAction={() => pushHistory(cloneDesign(design))}
