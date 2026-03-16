@@ -1,0 +1,2044 @@
+﻿import { useEffect, useMemo, useRef, useState } from 'react'
+import { createRoot } from 'react-dom/client'
+import Layout2D from '../../member 2/Layout2D'
+import Plan2D from '../../member 2/Plan2D'
+import ThreeViewport from '../../member 3/ThreeViewport'
+import { clamp } from '../../member 2/clamp'
+import { shadeColor } from '../../member 3/color'
+import {
+  createSplitExportCanvas,
+  downloadCanvasAsPdf,
+  downloadCanvasAsPng,
+} from '../../utils/canvasExport'
+import { cloneDesign } from '../../utils/clone'
+import { createId } from '../../utils/ids'
+import { isPlacementConflicting } from '../../utils/collision'
+import { clampItemWithinRoom, normalizeRotation } from '../../utils/rotationBounds'
+import { useNotifications } from '../../member 4/NotificationProvider'
+import ColorSwatchField from '../ColorSwatchField'
+import FurnitureThumbnail from '../FurnitureThumbnail'
+import {
+  ACCENT_COLOR_PRESETS,
+  FLOOR_COLOR_PRESETS,
+  ITEM_COLOR_PRESETS,
+  WALL_COLOR_PRESETS,
+} from '../../member 1/constants'
+import {
+  isOpeningItem,
+  isOpeningElementType,
+  snapOpeningToRoomWall,
+} from '../../utils/openingPlacement'
+import { getRoomPolygonPoints, getRoomWallSegments } from '../../utils/roomShape'
+
+const ICONS = {
+  select: (
+    <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.6">
+      <path d="M4 4l6 16 2-7 7-2z" />
+    </svg>
+  ),
+  move: (
+    <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.6">
+      <path d="M12 3v18" />
+      <path d="M3 12h18" />
+      <path d="M7 7l-4 4 4 4" />
+      <path d="M17 7l4 4-4 4" />
+    </svg>
+  ),
+  rotate: (
+    <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.6">
+      <path d="M21 12a9 9 0 1 1-3-6.7" />
+      <path d="M21 3v6h-6" />
+    </svg>
+  ),
+  rotateLeft: (
+    <span className="tool-rotate-icon" aria-hidden="true">
+      <img src="/assets/rotate-left.png" alt="" />
+    </span>
+  ),
+  rotateRight: (
+    <span className="tool-rotate-icon" aria-hidden="true">
+      <img src="/assets/rotate-right.png" alt="" />
+    </span>
+  ),
+  undo: (
+    <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.6">
+      <path d="M9 10H4V5" />
+      <path d="M4 10c2-3 6-5 10-4 4 1 6 4 6 8" />
+    </svg>
+  ),
+  redo: (
+    <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.6">
+      <path d="M15 10h5V5" />
+      <path d="M20 10c-2-3-6-5-10-4-4 1-6 4-6 8" />
+    </svg>
+  ),
+  trash: (
+    <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.6">
+      <path d="M4 7h16" />
+      <path d="M9 7V5h6v2" />
+      <path d="M7 7l1 12h8l1-12" />
+    </svg>
+  ),
+}
+
+const ADD_PLACEMENT_STEP = 0.1
+const EXPORT_SCALE = 120
+const EXPORT_PADDING = 56
+const CATALOG_ITEM_MIME = 'application/x-roomcraft-catalog-item'
+const PASTE_OFFSET = 0.3
+
+const sanitizeFileName = (name) =>
+  (name || 'roomcraft-plan')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+
+const getPlanBounds = (rooms) =>
+  rooms.reduce(
+    (acc, room) => {
+      const x = Number.isFinite(room.x) ? room.x : 0
+      const y = Number.isFinite(room.y) ? room.y : 0
+      acc.minX = Math.min(acc.minX, x)
+      acc.minY = Math.min(acc.minY, y)
+      acc.maxX = Math.max(acc.maxX, x + room.width)
+      acc.maxY = Math.max(acc.maxY, y + room.depth)
+      return acc
+    },
+    {
+      minX: Number.POSITIVE_INFINITY,
+      minY: Number.POSITIVE_INFINITY,
+      maxX: Number.NEGATIVE_INFINITY,
+      maxY: Number.NEGATIVE_INFINITY,
+    },
+  )
+
+const roundToStep = (value, step) => Math.round(value / step) * step
+
+const normalizePositionValue = (value) => Number(value.toFixed(4))
+
+const buildPlacementAxis = (max, step) => {
+  if (!Number.isFinite(max) || max <= 0) return [0]
+  const values = []
+  for (let current = 0; current <= max + step * 0.5; current += step) {
+    values.push(normalizePositionValue(Math.min(max, current)))
+  }
+  const last = values[values.length - 1]
+  if (Math.abs(last - max) > 0.0001) {
+    values.push(normalizePositionValue(max))
+  }
+  return values
+}
+
+const resolveDroppedCatalogId = (dataTransfer) => {
+  if (!dataTransfer) return ''
+  return (
+    dataTransfer.getData(CATALOG_ITEM_MIME) ||
+    dataTransfer.getData('text/plain') ||
+    ''
+  )
+}
+
+const isTypingTarget = (target) => {
+  if (!target || !(target instanceof HTMLElement)) return false
+  const tagName = target.tagName
+  return (
+    target.isContentEditable ||
+    tagName === 'INPUT' ||
+    tagName === 'TEXTAREA' ||
+    tagName === 'SELECT'
+  )
+}
+
+const findAvailablePosition = ({
+  baseItem,
+  room,
+  existingItems,
+  defaultRoomId,
+  preferredPosition = null,
+  step = ADD_PLACEMENT_STEP,
+}) => {
+  const maxX = Math.max(0, room.width - baseItem.width)
+  const maxY = Math.max(0, room.depth - baseItem.depth)
+  const canPlace = (x, y) =>
+    !isPlacementConflicting(
+      {
+        ...baseItem,
+        x,
+        y,
+      },
+      existingItems,
+      { defaultRoomId, room },
+    )
+
+  const normalizePosition = (position) => {
+    if (!position) return null
+    const x = normalizePositionValue(
+      clamp(roundToStep(position.x, step), 0, maxX),
+    )
+    const y = normalizePositionValue(
+      clamp(roundToStep(position.y, step), 0, maxY),
+    )
+    return { x, y }
+  }
+
+  const preferred = normalizePosition(preferredPosition)
+  if (preferred && canPlace(preferred.x, preferred.y)) {
+    return preferred
+  }
+
+  const xAxis = buildPlacementAxis(maxX, step)
+  const yAxis = buildPlacementAxis(maxY, step)
+
+  if (!preferred) {
+    for (const y of yAxis) {
+      for (const x of xAxis) {
+        if (canPlace(x, y)) return { x, y }
+      }
+    }
+    return null
+  }
+
+  const candidates = []
+  for (const y of yAxis) {
+    for (const x of xAxis) {
+      candidates.push({ x, y })
+    }
+  }
+  candidates.sort((first, second) => {
+    const firstDistance =
+      (first.x - preferred.x) * (first.x - preferred.x) +
+      (first.y - preferred.y) * (first.y - preferred.y)
+    const secondDistance =
+      (second.x - preferred.x) * (second.x - preferred.x) +
+      (second.y - preferred.y) * (second.y - preferred.y)
+    return firstDistance - secondDistance
+  })
+
+  for (const candidate of candidates) {
+    if (canPlace(candidate.x, candidate.y)) {
+      return candidate
+    }
+  }
+
+  return null
+}
+
+const findAvailableOpeningPlacement = ({
+  baseItem,
+  room,
+  existingItems,
+  defaultRoomId,
+  preferredCenter = null,
+  step = ADD_PLACEMENT_STEP,
+}) => {
+  const preferred = {
+    x: clamp(
+      Number.isFinite(preferredCenter?.x) ? preferredCenter.x : room.width * 0.5,
+      0,
+      room.width,
+    ),
+    y: clamp(
+      Number.isFinite(preferredCenter?.y) ? preferredCenter.y : room.depth * 0.18,
+      0,
+      room.depth,
+    ),
+  }
+  const xAxis = buildPlacementAxis(room.width, step)
+  const yAxis = buildPlacementAxis(room.depth, step)
+
+  const centerCandidates = [{ x: preferred.x, y: preferred.y }]
+  getRoomWallSegments(room).forEach((segment) => {
+    if (segment.axis === 'horizontal') {
+      const minX = Math.min(segment.x1, segment.x2)
+      const maxX = Math.max(segment.x1, segment.x2)
+      buildPlacementAxis(maxX - minX, step).forEach((offset) => {
+        centerCandidates.push({ x: minX + offset, y: segment.y1 })
+      })
+      centerCandidates.push({ x: (segment.x1 + segment.x2) / 2, y: segment.y1 })
+      return
+    }
+
+    const minY = Math.min(segment.y1, segment.y2)
+    const maxY = Math.max(segment.y1, segment.y2)
+    buildPlacementAxis(maxY - minY, step).forEach((offset) => {
+      centerCandidates.push({ x: segment.x1, y: minY + offset })
+    })
+    centerCandidates.push({ x: segment.x1, y: (segment.y1 + segment.y2) / 2 })
+  })
+  xAxis.forEach((x) => {
+    centerCandidates.push({ x, y: 0 })
+    centerCandidates.push({ x, y: room.depth })
+  })
+  yAxis.forEach((y) => {
+    centerCandidates.push({ x: 0, y })
+    centerCandidates.push({ x: room.width, y })
+  })
+
+  centerCandidates.sort((first, second) => {
+    const firstDistance =
+      (first.x - preferred.x) * (first.x - preferred.x) +
+      (first.y - preferred.y) * (first.y - preferred.y)
+    const secondDistance =
+      (second.x - preferred.x) * (second.x - preferred.x) +
+      (second.y - preferred.y) * (second.y - preferred.y)
+    return firstDistance - secondDistance
+  })
+
+  const visited = new Set()
+  for (const center of centerCandidates) {
+    const placement = snapOpeningToRoomWall(baseItem, room, center.x, center.y)
+    const key = `${placement.wall}:${placement.x.toFixed(4)}:${placement.y.toFixed(4)}:${placement.width.toFixed(4)}:${placement.depth.toFixed(4)}`
+    if (visited.has(key)) continue
+    visited.add(key)
+
+    const candidate = {
+      ...baseItem,
+      x: placement.x,
+      y: placement.y,
+      width: placement.width,
+      depth: placement.depth,
+      openingWall: placement.wall,
+      rotation: 0,
+    }
+
+    if (
+      !isPlacementConflicting(candidate, existingItems, {
+        defaultRoomId,
+        room,
+      })
+    ) {
+      return candidate
+    }
+  }
+
+  return null
+}
+
+export default function Editor({
+  user,
+  design,
+  catalog,
+  onUpdateDesign,
+  onSaveDesign,
+  onExit,
+  readOnly = false,
+  initialViewMode = '2d',
+  allowViewToggle = true,
+  splitView = false,
+}) {
+  const [viewMode, setViewMode] = useState(initialViewMode)
+  const [selectedId, setSelectedId] = useState(null)
+  const [history, setHistory] = useState([])
+  const [future, setFuture] = useState([])
+  const [panelEditActive, setPanelEditActive] = useState(false)
+  const [activeTool, setActiveTool] = useState('select')
+  const [activeRoomId, setActiveRoomId] = useState(
+    () => design?.rooms?.[0]?.id || design?.room?.id || null,
+  )
+  const [catalogPointerDrag, setCatalogPointerDrag] = useState(null)
+  const copiedItemRef = useRef(null)
+  const statusTimer = useRef(null)
+  const [exportDialogOpen, setExportDialogOpen] = useState(false)
+  const [exportView, setExportView] = useState('2d')
+  const [exportFormat, setExportFormat] = useState('png')
+  const [exporting, setExporting] = useState(false)
+  const { notify } = useNotifications()
+  const canEdit = !readOnly
+  const rooms = useMemo(() => {
+    if (design?.rooms?.length) {
+      return design.rooms
+    }
+    if (design?.room) {
+      return [
+        {
+          ...design.room,
+          id: design.room.id || 'room-1',
+          x: Number.isFinite(design.room.x) ? design.room.x : 0,
+          y: Number.isFinite(design.room.y) ? design.room.y : 0,
+        },
+      ]
+    }
+    return []
+  }, [design?.room, design?.rooms])
+
+  useEffect(() => {
+    setSelectedId(null)
+    setHistory([])
+    setFuture([])
+    setViewMode(initialViewMode)
+    setPanelEditActive(false)
+    setExportDialogOpen(false)
+    setExporting(false)
+    setCatalogPointerDrag(null)
+  }, [design?.id, initialViewMode])
+
+  useEffect(() => {
+    if (selectedId && !design?.items.find((item) => item.id === selectedId)) {
+      setSelectedId(null)
+    }
+  }, [design?.items, selectedId])
+
+  useEffect(() => {
+    if (!rooms.length) {
+      setActiveRoomId(null)
+      return
+    }
+    setActiveRoomId((prev) =>
+      prev && rooms.some((room) => room.id === prev) ? prev : rooms[0].id,
+    )
+  }, [rooms])
+
+  useEffect(() => {
+    if (!selectedId || !activeRoomId) return
+    const current = design?.items.find((item) => item.id === selectedId)
+    if (current?.roomId && current.roomId !== activeRoomId) {
+      setSelectedId(null)
+    }
+  }, [activeRoomId, design?.items, selectedId])
+
+  useEffect(() => {
+    if (!catalogPointerDrag) return
+
+    const movementThreshold = 6
+
+    const handlePointerMove = (event) => {
+      setCatalogPointerDrag((current) => {
+        if (!current) return null
+        if (
+          Number.isFinite(current.pointerId) &&
+          Number.isFinite(event.pointerId) &&
+          current.pointerId !== event.pointerId
+        ) {
+          return current
+        }
+        const dx = event.clientX - current.startX
+        const dy = event.clientY - current.startY
+        const dragging =
+          current.dragging ||
+          dx * dx + dy * dy >= movementThreshold * movementThreshold
+        if (
+          current.currentX === event.clientX &&
+          current.currentY === event.clientY &&
+          current.dragging === dragging
+        ) {
+          return current
+        }
+        return {
+          ...current,
+          currentX: event.clientX,
+          currentY: event.clientY,
+          dragging,
+        }
+      })
+    }
+
+    const clearPointerDrag = (event) => {
+      window.setTimeout(() => {
+        setCatalogPointerDrag((current) => {
+          if (!current) return null
+          if (
+            Number.isFinite(current.pointerId) &&
+            Number.isFinite(event.pointerId) &&
+            current.pointerId !== event.pointerId
+          ) {
+            return current
+          }
+          return null
+        })
+      }, 0)
+    }
+
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', clearPointerDrag)
+    window.addEventListener('pointercancel', clearPointerDrag)
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', clearPointerDrag)
+      window.removeEventListener('pointercancel', clearPointerDrag)
+    }
+  }, [catalogPointerDrag])
+
+  if (!design) {
+    return (
+      <div className="empty-state">
+        <p>No design selected</p>
+        <button className="btn btn-primary" onClick={onExit}>
+          Back to dashboard
+        </button>
+      </div>
+    )
+  }
+
+  const isMultiRoom = rooms.length > 1
+  const activeRoom = rooms.find((room) => room.id === activeRoomId) || rooms[0] || null
+  const activeRoomItems = activeRoom
+    ? design.items.filter(
+        (item) => item.roomId === activeRoom.id || (!item.roomId && rooms.length === 1),
+      )
+    : []
+  const selectedItem = activeRoomItems.find((item) => item.id === selectedId)
+  const selectedIsOpening = isOpeningItem(selectedItem)
+  const accentOverrideEnabled = design.accentOverrideEnabled === true
+  const catalogColorMap = useMemo(
+    () => new Map(catalog.map((item) => [item.id, item.color])),
+    [catalog],
+  )
+
+  const getRoomItems = (roomId) =>
+    design.items.filter(
+      (item) => item.roomId === roomId || (!item.roomId && rooms.length === 1),
+    )
+
+  const getOriginalItemColor = (item) => catalogColorMap.get(item.type) || item.color
+
+  const buildAccentDesign = (nextColor, enableAccent) => ({
+    ...design,
+    accentColor: nextColor ?? design.accentColor,
+    accentOverrideEnabled: enableAccent,
+    items: design.items.map((item) => ({
+      ...item,
+      color: enableAccent ? nextColor : getOriginalItemColor(item),
+    })),
+  })
+
+  const showStatus = (message, type = 'info') => {
+    window.clearTimeout(statusTimer.current)
+    notify(message, type)
+    statusTimer.current = window.setTimeout(() => {}, 1500)
+  }
+
+  const syncPrimaryRoom = (nextDesign) => {
+    if (!nextDesign?.rooms?.length) return nextDesign
+    return nextDesign.room === nextDesign.rooms[0]
+      ? nextDesign
+      : { ...nextDesign, room: nextDesign.rooms[0] }
+  }
+
+  const commitDesign = (nextDesign) => {
+    onUpdateDesign(syncPrimaryRoom(nextDesign))
+  }
+
+  const pushHistory = (snapshot) => {
+    if (!canEdit) return
+    setHistory((prev) => [...prev, snapshot])
+    setFuture([])
+  }
+
+  const beginPanelEdit = () => {
+    if (!canEdit) return
+    if (!panelEditActive) {
+      pushHistory(cloneDesign(design))
+      setPanelEditActive(true)
+    }
+  }
+
+  const endPanelEdit = (message) => {
+    if (!canEdit) return
+    if (panelEditActive) {
+      setPanelEditActive(false)
+      if (message) showStatus(message, 'success')
+    }
+  }
+
+  const applyInstantPanelChange = (applyChange, message) => {
+    if (!canEdit) return
+    if (panelEditActive) {
+      setPanelEditActive(false)
+    } else {
+      pushHistory(cloneDesign(design))
+    }
+    applyChange()
+    if (message) showStatus(message, 'success')
+  }
+
+  const handleUndo = () => {
+    if (!canEdit || !history.length) return
+    const previous = history[history.length - 1]
+    setHistory((prev) => prev.slice(0, -1))
+    setFuture((prev) => [cloneDesign(design), ...prev])
+    commitDesign(previous)
+    showStatus('Undo applied', 'info')
+  }
+
+  const handleRedo = () => {
+    if (!canEdit || !future.length) return
+    const next = future[0]
+    setFuture((prev) => prev.slice(1))
+    setHistory((prev) => [...prev, cloneDesign(design)])
+    commitDesign(next)
+    showStatus('Redo applied', 'info')
+  }
+
+  const updateDesign = (nextDesign, message) => {
+    if (!canEdit) return
+    commitDesign(nextDesign)
+    if (message) showStatus(message, 'success')
+  }
+
+  const handleAddItem = (
+    item,
+    { roomId = null, centerX = null, centerY = null } = {},
+  ) => {
+    if (!canEdit) return
+    const targetRoom = rooms.find((room) => room.id === roomId) || activeRoom
+    if (!targetRoom) return
+    const targetRoomItems = getRoomItems(targetRoom.id)
+    const isOpening = isOpeningElementType(item.elementType)
+    const newItem = {
+      id: createId(),
+      type: item.id,
+      label: item.name,
+      width: clamp(item.width, 0.2, targetRoom.width),
+      depth: clamp(item.depth, 0.2, targetRoom.depth),
+      height: item.height,
+      color: accentOverrideEnabled ? design.accentColor : item.color,
+      shade: isOpening ? 0.02 : 0.1,
+      rotation: 0,
+      x: 0,
+      y: 0,
+      roomId: targetRoom.id,
+      elementType: item.elementType || null,
+      category: item.category || null,
+    }
+
+    if (isOpening) {
+      const placement = findAvailableOpeningPlacement({
+        baseItem: newItem,
+        room: targetRoom,
+        existingItems: targetRoomItems,
+        defaultRoomId: targetRoom.id,
+        preferredCenter: {
+          x: centerX,
+          y: centerY,
+        },
+      })
+      if (!placement) {
+        showStatus(`No wall space to add ${item.name}.`, 'warning')
+        return
+      }
+      newItem.x = placement.x
+      newItem.y = placement.y
+      newItem.width = placement.width
+      newItem.depth = placement.depth
+      newItem.openingWall = placement.openingWall
+    } else {
+      const preferredPosition =
+        Number.isFinite(centerX) && Number.isFinite(centerY)
+          ? {
+              x: centerX - newItem.width / 2,
+              y: centerY - newItem.depth / 2,
+            }
+          : null
+      const availablePosition = findAvailablePosition({
+        baseItem: newItem,
+        room: targetRoom,
+        existingItems: targetRoomItems,
+        defaultRoomId: targetRoom.id,
+        preferredPosition,
+      })
+      if (!availablePosition) {
+        showStatus(`No space to add ${item.name}.`, 'warning')
+        return
+      }
+      newItem.x = availablePosition.x
+      newItem.y = availablePosition.y
+    }
+
+    pushHistory(cloneDesign(design))
+    const nextDesign = {
+      ...design,
+      items: [...design.items, newItem],
+    }
+    commitDesign(nextDesign)
+    setSelectedId(newItem.id)
+    setActiveRoomId(targetRoom.id)
+    showStatus(`${item.name} added`, 'success')
+  }
+
+  const handleCatalogDragStart = (event, catalogItemId) => {
+    if (!canEdit) return
+    event.dataTransfer?.setData(CATALOG_ITEM_MIME, catalogItemId)
+    event.dataTransfer?.setData('text/plain', catalogItemId)
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'copy'
+    }
+  }
+
+  const handleCatalogPointerStart = (event, catalogItemId) => {
+    if (!canEdit || event.button !== 0) return
+    setCatalogPointerDrag({
+      itemId: catalogItemId,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      currentX: event.clientX,
+      currentY: event.clientY,
+      dragging: false,
+    })
+  }
+
+  const handleDropCatalogItem = (catalogItemId, placement = {}) => {
+    if (!canEdit) return
+    const catalogItem = catalog.find((entry) => entry.id === catalogItemId)
+    if (!catalogItem) return
+    handleAddItem(catalogItem, placement)
+  }
+
+  const handleCanvasDragOver = (event) => {
+    if (!canEdit) return
+    if (!resolveDroppedCatalogId(event.dataTransfer)) return
+    event.preventDefault()
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = 'copy'
+    }
+  }
+
+  const handleCanvasDrop = (event) => {
+    if (!canEdit) return
+    const catalogItemId = resolveDroppedCatalogId(event.dataTransfer)
+    if (!catalogItemId) return
+    event.preventDefault()
+    handleDropCatalogItem(catalogItemId)
+  }
+
+  const catalogPointerDragItemId =
+    canEdit && catalogPointerDrag?.dragging ? catalogPointerDrag.itemId : ''
+  const draggedCatalogItem = catalog.find((item) => item.id === catalogPointerDragItemId) || null
+
+  const handleDeleteItem = () => {
+    if (!canEdit || !selectedItem) return
+    if (!window.confirm(`Remove ${selectedItem.label}?`)) return
+    pushHistory(cloneDesign(design))
+    const nextItems = design.items.filter((item) => item.id !== selectedItem.id)
+    commitDesign({ ...design, items: nextItems })
+    setSelectedId(null)
+    showStatus('Item removed', 'warning')
+  }
+
+  const handleCopyItem = () => {
+    if (!canEdit || !selectedItem) return
+    copiedItemRef.current = cloneDesign(selectedItem)
+    showStatus(`${selectedItem.label} copied`, 'info')
+  }
+
+  const handlePasteItem = () => {
+    if (!canEdit) return
+    const copiedItem = copiedItemRef.current
+    if (!copiedItem) return
+
+    const targetRoom =
+      rooms.find((room) => room.id === copiedItem.roomId) || activeRoom || rooms[0] || null
+    if (!targetRoom) return
+
+    const targetRoomItems = getRoomItems(targetRoom.id)
+    const newItem = {
+      ...cloneDesign(copiedItem),
+      id: createId(),
+      roomId: targetRoom.id,
+    }
+
+    if (isOpeningItem(newItem)) {
+      const preferredCenter = {
+        x: newItem.x + newItem.width / 2 + PASTE_OFFSET,
+        y: newItem.y + newItem.depth / 2 + PASTE_OFFSET,
+      }
+      const placement = findAvailableOpeningPlacement({
+        baseItem: newItem,
+        room: targetRoom,
+        existingItems: targetRoomItems,
+        defaultRoomId: targetRoom.id,
+        preferredCenter,
+      })
+      if (!placement) {
+        showStatus(`No wall space to paste ${newItem.label}.`, 'warning')
+        return
+      }
+      newItem.x = placement.x
+      newItem.y = placement.y
+      newItem.width = placement.width
+      newItem.depth = placement.depth
+      newItem.openingWall = placement.openingWall
+      newItem.rotation = 0
+    } else {
+      const availablePosition = findAvailablePosition({
+        baseItem: newItem,
+        room: targetRoom,
+        existingItems: targetRoomItems,
+        defaultRoomId: targetRoom.id,
+        preferredPosition: {
+          x: newItem.x + PASTE_OFFSET,
+          y: newItem.y + PASTE_OFFSET,
+        },
+      })
+      if (!availablePosition) {
+        showStatus(`No space to paste ${newItem.label}.`, 'warning')
+        return
+      }
+      newItem.x = availablePosition.x
+      newItem.y = availablePosition.y
+    }
+
+    pushHistory(cloneDesign(design))
+    commitDesign({
+      ...design,
+      items: [...design.items, newItem],
+    })
+    setSelectedId(newItem.id)
+    setActiveRoomId(targetRoom.id)
+    showStatus(`${newItem.label} pasted`, 'success')
+  }
+
+  const handleRotate90 = (direction) => {
+    if (!canEdit || !selectedItem) return
+    pushHistory(cloneDesign(design))
+    const nextRotation = normalizeRotation(selectedItem.rotation + 90 * direction)
+    const nextItems = design.items.map((item) =>
+      item.id === selectedItem.id
+        ? activeRoom && !isOpeningItem(item)
+          ? clampItemWithinRoom({ ...item, rotation: nextRotation }, activeRoom)
+          : { ...item, rotation: nextRotation }
+        : item,
+    )
+    commitDesign({ ...design, items: nextItems })
+    showStatus('Rotated 90 degrees', 'success')
+  }
+
+  const handleRoomChange = (field, value) => {
+    if (!canEdit || !activeRoom) return
+    if (typeof value === 'number') {
+      if (!Number.isFinite(value)) return
+      if (['width', 'depth', 'height'].includes(field) && value <= 0) return
+      if (['x', 'y'].includes(field) && value < 0) return
+    }
+
+    const nextRoom = { ...activeRoom, [field]: value }
+    let nextItems = design.items
+    if (field === 'width' || field === 'depth') {
+      nextItems = design.items.map((item) => {
+        if (item.roomId !== activeRoom.id) return item
+        const width = clamp(item.width, 0.2, nextRoom.width)
+        const depth = clamp(item.depth, 0.2, nextRoom.depth)
+        const x = clamp(item.x, 0, Math.max(0, nextRoom.width - width))
+        const y = clamp(item.y, 0, Math.max(0, nextRoom.depth - depth))
+        const resizedItem = { ...item, width, depth, x, y }
+        return isOpeningItem(resizedItem) ? resizedItem : clampItemWithinRoom(resizedItem, nextRoom)
+      })
+    }
+    const nextRooms = rooms.map((room) =>
+      room.id === activeRoom.id ? nextRoom : room,
+    )
+    updateDesign({ ...design, rooms: nextRooms, items: nextItems })
+  }
+
+  const handleItemChange = (field, value) => {
+    if (!canEdit || !selectedItem) return
+    const nextItems = design.items.map((item) => {
+      if (item.id !== selectedItem.id) return item
+      const updated = { ...item, [field]: value }
+      if (
+        isOpeningItem(updated) &&
+        activeRoom &&
+        (field === 'width' || field === 'depth')
+      ) {
+        const centerX = item.x + item.width / 2
+        const centerY = item.y + item.depth / 2
+        const placement = snapOpeningToRoomWall(updated, activeRoom, centerX, centerY)
+        return {
+          ...updated,
+          x: placement.x,
+          y: placement.y,
+          width: placement.width,
+          depth: placement.depth,
+          openingWall: placement.wall,
+          rotation: 0,
+        }
+      }
+      if (
+        activeRoom &&
+        !isOpeningItem(updated) &&
+        ['x', 'y', 'width', 'depth', 'rotation'].includes(field)
+      ) {
+        return clampItemWithinRoom(updated, activeRoom)
+      }
+      return field === 'rotation' ? { ...updated, rotation: normalizeRotation(value) } : updated
+    })
+    updateDesign({ ...design, items: nextItems })
+  }
+
+  const applyShadeToAll = () => {
+    if (!canEdit || !design.items.length) return
+    pushHistory(cloneDesign(design))
+    const nextItems = design.items.map((item) => ({
+      ...item,
+      shade: clamp(design.globalShade, 0, 0.6),
+    }))
+    commitDesign({ ...design, items: nextItems })
+    showStatus('Shade applied to all items', 'success')
+  }
+
+  const handleAddRoom = () => {
+    if (!canEdit) return
+    const baseRoom = activeRoom || rooms[0]
+    if (!baseRoom) return
+    const bounds = rooms.reduce(
+      (acc, room) => {
+        const x = Number.isFinite(room.x) ? room.x : 0
+        const y = Number.isFinite(room.y) ? room.y : 0
+        acc.minX = Math.min(acc.minX, x)
+        acc.minY = Math.min(acc.minY, y)
+        acc.maxX = Math.max(acc.maxX, x + room.width)
+        acc.maxY = Math.max(acc.maxY, y + room.depth)
+        return acc
+      },
+      { minX: 0, minY: 0, maxX: 0, maxY: 0 },
+    )
+    const gap = 0.8
+    const newRoom = {
+      ...baseRoom,
+      id: createId(),
+      name: `Room ${rooms.length + 1}`,
+      x: bounds.maxX + gap,
+      y: bounds.minY,
+    }
+    pushHistory(cloneDesign(design))
+    const nextRooms = [...rooms, newRoom]
+    updateDesign({ ...design, rooms: nextRooms })
+    setActiveRoomId(newRoom.id)
+    showStatus('Room added', 'success')
+  }
+
+  const handleRemoveRoom = (roomId) => {
+    if (!canEdit || rooms.length <= 1) return
+    const target = rooms.find((room) => room.id === roomId)
+    if (!target) return
+    const roomItems = design.items.filter((item) => item.roomId === roomId)
+    if (
+      !window.confirm(
+        `Remove ${target.name || 'room'}? ${roomItems.length} items will be removed.`,
+      )
+    ) {
+      return
+    }
+    pushHistory(cloneDesign(design))
+    const nextRooms = rooms.filter((room) => room.id !== roomId)
+    const nextItems = design.items.filter((item) => item.roomId !== roomId)
+    updateDesign({ ...design, rooms: nextRooms, items: nextItems })
+    setActiveRoomId(nextRooms[0]?.id || null)
+    setSelectedId(null)
+    showStatus('Room removed', 'warning')
+  }
+
+  const isSplitView = splitView || viewMode === 'split'
+
+  const viewLabel = isSplitView
+    ? '2D + 3D Split View'
+    : viewMode === '2d'
+      ? isMultiRoom
+        ? 'Plan View'
+        : '2D View'
+      : viewMode === 'inside'
+        ? 'Inside View'
+        : '3D View'
+
+  const mergeRoomItems = (nextRoomItems) => {
+    if (!isMultiRoom || !activeRoom) return nextRoomItems
+    const map = new Map(nextRoomItems.map((item) => [item.id, item]))
+    return design.items.map((item) => map.get(item.id) || item)
+  }
+
+  const openExportDialog = () => {
+    setExportView(isSplitView ? 'split' : viewMode === '2d' ? '2d' : '3d')
+    setExportFormat('png')
+    setExportDialogOpen(true)
+  }
+
+  useEffect(() => {
+    if (!canEdit) return
+
+    const handleKeyDown = (event) => {
+      if (exportDialogOpen || isTypingTarget(event.target)) return
+
+      const key = event.key.toLowerCase()
+      const hasShortcutModifier = event.ctrlKey || event.metaKey
+
+      if (event.key === 'Delete' && selectedItem) {
+        event.preventDefault()
+        handleDeleteItem()
+        return
+      }
+
+      if (!hasShortcutModifier) return
+
+      if (key === 'z' && !event.shiftKey) {
+        event.preventDefault()
+        handleUndo()
+        return
+      }
+
+      if (key === 'y' || (key === 'z' && event.shiftKey)) {
+        event.preventDefault()
+        handleRedo()
+        return
+      }
+
+      if (key === 'c' && selectedItem) {
+        event.preventDefault()
+        handleCopyItem()
+        return
+      }
+
+      if (key === 'v' && copiedItemRef.current) {
+        event.preventDefault()
+        handlePasteItem()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [canEdit, exportDialogOpen, selectedItem, design, activeRoom, rooms, history.length, future.length])
+
+  const build2DExportCanvas = () => {
+    if (!rooms.length) return null
+    const bounds = getPlanBounds(rooms)
+    if (!Number.isFinite(bounds.minX) || !Number.isFinite(bounds.minY)) return null
+
+    const widthMeters = Math.max(1, bounds.maxX - bounds.minX)
+    const heightMeters = Math.max(1, bounds.maxY - bounds.minY)
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.round(widthMeters * EXPORT_SCALE + EXPORT_PADDING * 2)
+    canvas.height = Math.round(heightMeters * EXPORT_SCALE + EXPORT_PADDING * 2)
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return null
+
+    ctx.fillStyle = '#f6f1eb'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+    const toPxX = (meters) => EXPORT_PADDING + (meters - bounds.minX) * EXPORT_SCALE
+    const toPxY = (meters) => EXPORT_PADDING + (meters - bounds.minY) * EXPORT_SCALE
+
+    rooms.forEach((room) => {
+      const roomX = Number.isFinite(room.x) ? room.x : 0
+      const roomY = Number.isFinite(room.y) ? room.y : 0
+      const left = toPxX(roomX)
+      const top = toPxY(roomY)
+      const roomPolygon = getRoomPolygonPoints(room, roomX, roomY).map((point) => ({
+        x: toPxX(point.x),
+        y: toPxY(point.y),
+      }))
+
+      ctx.fillStyle = room.floorColor || '#d8c0a8'
+      ctx.beginPath()
+      roomPolygon.forEach((point, index) => {
+        if (index === 0) {
+          ctx.moveTo(point.x, point.y)
+        } else {
+          ctx.lineTo(point.x, point.y)
+        }
+      })
+      ctx.closePath()
+      ctx.fill()
+      ctx.strokeStyle = '#7d6652'
+      ctx.lineWidth = 3
+      ctx.stroke()
+
+      ctx.fillStyle = '#4b3a2d'
+      ctx.font = '600 13px Manrope, Segoe UI, sans-serif'
+      ctx.fillText(
+        `${room.name || 'Room'} (${room.width}m x ${room.depth}m)`,
+        left + 8,
+        top + 20,
+      )
+    })
+
+    design.items.forEach((item) => {
+      const room =
+        rooms.find((entry) => entry.id === item.roomId) ||
+        (rooms.length === 1 ? rooms[0] : null)
+      if (!room) return
+
+      const roomX = Number.isFinite(room.x) ? room.x : 0
+      const roomY = Number.isFinite(room.y) ? room.y : 0
+      const centerX = toPxX(roomX + item.x + item.width / 2)
+      const centerY = toPxY(roomY + item.y + item.depth / 2)
+      const widthPx = item.width * EXPORT_SCALE
+      const depthPx = item.depth * EXPORT_SCALE
+      const shade = shadeColor(item.color, item.shade + design.globalShade * 0.6)
+
+      ctx.save()
+      ctx.translate(centerX, centerY)
+      ctx.rotate(((item.rotation || 0) * Math.PI) / 180)
+      if (item.elementType === 'window') {
+        ctx.fillStyle = '#e9f1f8'
+        ctx.strokeStyle = '#4f6c84'
+        ctx.lineWidth = 2
+        ctx.fillRect(-widthPx / 2, -depthPx / 2, widthPx, depthPx)
+        ctx.strokeRect(-widthPx / 2, -depthPx / 2, widthPx, depthPx)
+        ctx.beginPath()
+        if (widthPx >= depthPx) {
+          ctx.moveTo(0, -depthPx / 2)
+          ctx.lineTo(0, depthPx / 2)
+        } else {
+          ctx.moveTo(-widthPx / 2, 0)
+          ctx.lineTo(widthPx / 2, 0)
+        }
+        ctx.stroke()
+      } else if (item.elementType === 'door') {
+        ctx.fillStyle = '#f9f9f9'
+        ctx.strokeStyle = '#1c1c1c'
+        ctx.lineWidth = 1.6
+        ctx.fillRect(-widthPx / 2, -depthPx / 2, widthPx, depthPx)
+        ctx.strokeRect(-widthPx / 2, -depthPx / 2, widthPx, depthPx)
+        const swingRadius = Math.max(widthPx, depthPx)
+        ctx.beginPath()
+        ctx.arc(-widthPx / 2, -depthPx / 2, swingRadius, 0, Math.PI / 2)
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.55)'
+        ctx.lineWidth = 1
+        ctx.stroke()
+      } else {
+        ctx.fillStyle = shade
+        ctx.fillRect(-widthPx / 2, -depthPx / 2, widthPx, depthPx)
+        ctx.strokeStyle = '#3a2b22'
+        ctx.lineWidth = 1
+        ctx.strokeRect(-widthPx / 2, -depthPx / 2, widthPx, depthPx)
+
+        ctx.fillStyle = '#ffffff'
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        ctx.font = '700 11px Manrope, Segoe UI, sans-serif'
+        ctx.fillText(item.label || 'Item', 0, 0, Math.max(24, widthPx - 8))
+      }
+      ctx.restore()
+    })
+
+    return canvas
+  }
+
+  const renderThreeExportCanvas = async () => {
+    if (!activeRoom) return null
+    const host = document.createElement('div')
+    host.style.position = 'fixed'
+    host.style.left = '-10000px'
+    host.style.top = '0'
+    host.style.width = '1280px'
+    host.style.height = '800px'
+    document.body.appendChild(host)
+    const root = createRoot(host)
+
+    try {
+      const canvas = await new Promise((resolve) => {
+        const timeoutId = window.setTimeout(() => resolve(null), 6000)
+
+        root.render(
+          <ThreeViewport
+            room={activeRoom}
+            items={activeRoomItems}
+            catalog={catalog}
+            globalShade={design.globalShade}
+            selectedId={null}
+            activeTool="select"
+            readOnly
+            controlMode="orbit"
+            onRenderReady={(snapshot) => {
+              window.clearTimeout(timeoutId)
+              resolve(snapshot)
+            }}
+          />,
+        )
+      })
+
+      return canvas
+    } finally {
+      root.unmount()
+      host.remove()
+    }
+  }
+
+  const buildExportCanvas = async () => {
+    if (exportView === '2d') {
+      return build2DExportCanvas()
+    }
+
+    const threeCanvas = await renderThreeExportCanvas()
+
+    if (exportView === '3d') {
+      return threeCanvas
+    }
+
+    const layoutCanvas = build2DExportCanvas()
+    if (!layoutCanvas || !threeCanvas) return null
+    return createSplitExportCanvas({
+      leftCanvas: layoutCanvas,
+      rightCanvas: threeCanvas,
+      leftLabel: '2D View',
+      rightLabel: '3D View',
+    })
+  }
+
+  const handleExport = async () => {
+    if (exporting) return
+    setExporting(true)
+
+    try {
+      const canvas = await buildExportCanvas()
+      if (!canvas) {
+        showStatus('Unable to prepare export preview.', 'warning')
+        return
+      }
+
+      const exportName = `${sanitizeFileName(design.name)}-${exportView}`
+      if (exportFormat === 'pdf') {
+        downloadCanvasAsPdf(canvas, `${exportName}.pdf`)
+      } else {
+        downloadCanvasAsPng(canvas, `${exportName}.png`)
+      }
+
+      setExportDialogOpen(false)
+      showStatus(
+        `${exportView === 'split' ? 'Split view' : `${exportView.toUpperCase()} view`} exported as ${exportFormat.toUpperCase()}`,
+        'success',
+      )
+    } catch {
+      showStatus('Export failed. Try again.', 'warning')
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  return (
+    <div className="editor-shell">
+      <div className="editor-toolbar">
+        <div className="tool-group">
+          {['select', 'rotate'].map((tool) => (
+            <button
+              key={tool}
+              className={`tool-button ${activeTool === tool ? 'active' : ''}`}
+              type="button"
+              onClick={() => setActiveTool(tool)}
+              title={tool}
+              disabled={!canEdit}
+            >
+              {ICONS[tool]}
+            </button>
+          ))}
+          <button
+            className="tool-button"
+            type="button"
+            onClick={handleUndo}
+            title="Undo"
+            disabled={!canEdit || !history.length}
+          >
+            {ICONS.undo}
+          </button>
+          <button
+            className="tool-button"
+            type="button"
+            onClick={handleRedo}
+            title="Redo"
+            disabled={!canEdit || !future.length}
+          >
+            {ICONS.redo}
+          </button>
+          <button
+            className="tool-button"
+            type="button"
+            onClick={handleDeleteItem}
+            title="Delete"
+            disabled={!canEdit || !selectedItem}
+          >
+            {ICONS.trash}
+          </button>
+          <button
+            className="tool-button"
+            type="button"
+            onClick={() => handleRotate90(-1)}
+            title="Rotate 90 degrees left"
+            disabled={!canEdit || !selectedItem || selectedIsOpening}
+          >
+            {ICONS.rotateLeft}
+          </button>
+          <button
+            className="tool-button"
+            type="button"
+            onClick={() => handleRotate90(1)}
+            title="Rotate 90 degrees right"
+            disabled={!canEdit || !selectedItem || selectedIsOpening}
+          >
+            {ICONS.rotateRight}
+          </button>
+        </div>
+
+        {splitView ? (
+          <div className="tag">2D + 3D</div>
+        ) : allowViewToggle ? (
+          <div className="view-toggle">
+            <button
+              className={!isSplitView && viewMode === '2d' ? 'active' : ''}
+              onClick={() => setViewMode('2d')}
+            >
+              2D
+            </button>
+            <button
+              className={!isSplitView && viewMode === '3d' ? 'active' : ''}
+              onClick={() => setViewMode('3d')}
+            >
+              3D
+            </button>
+            <button
+              className={!isSplitView && viewMode === 'inside' ? 'active' : ''}
+              onClick={() => setViewMode('inside')}
+            >
+              Inside
+            </button>
+            <button
+              className={isSplitView ? 'active' : ''}
+              onClick={() => setViewMode('split')}
+            >
+              Split
+            </button>
+          </div>
+        ) : (
+          <div className="tag">
+            {isSplitView
+              ? '2D + 3D'
+              : viewMode === '2d'
+              ? '2D Layout'
+              : viewMode === 'inside'
+                ? 'Inside View'
+                : '3D View'}
+          </div>
+        )}
+
+        <div className="tool-group">
+          <button className="btn btn-ghost" onClick={onExit}>
+            Back
+          </button>
+          <button className="btn btn-ghost" onClick={openExportDialog} type="button">
+            Export
+          </button>
+          <button
+            className="btn btn-primary"
+            onClick={() => {
+              if (!canEdit) return
+              onSaveDesign(design.id)
+            }}
+            disabled={!canEdit}
+          >
+            Save
+          </button>
+        </div>
+      </div>
+
+      <div className="editor-grid">
+        <aside className="panel">
+          <h3 className="panel-title">Furniture</h3>
+          {isMultiRoom && (
+            <div className="panel-subtitle">Active: {activeRoom?.name || 'Room'}</div>
+          )}
+          <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
+            Click or drag into the canvas to add
+          </p>
+          <div className="furniture-list">
+            {catalog.filter((item) => !item.hidden).map((item) => (
+              <div
+                key={item.id}
+                className={`furniture-item${!canEdit ? ' is-disabled' : ''}${
+                  catalogPointerDragItemId === item.id ? ' is-dragging' : ''
+                }`}
+                onClick={() => canEdit && handleAddItem(item)}
+                onPointerDown={(event) => handleCatalogPointerStart(event, item.id)}
+                onKeyDown={(event) => {
+                  if (!canEdit) return
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    handleAddItem(item)
+                  }
+                }}
+                role="button"
+                tabIndex={canEdit ? 0 : -1}
+                aria-disabled={!canEdit}
+              >
+                <div className="furniture-preview">
+                  <FurnitureThumbnail item={item} />
+                </div>
+                <div className="furniture-copy">
+                  <strong>{item.name}</strong>
+                  <div className="furniture-size">
+                    {item.width} x {item.depth}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </aside>
+
+        <main className="canvas-panel">
+          <div className="canvas-header">
+            <span>
+              {activeRoom
+                ? `${activeRoom.name || 'Room'} · ${activeRoom.width}m x ${activeRoom.depth}m`
+                : 'Room'}
+              {isMultiRoom ? ` · ${rooms.length} rooms` : ''}
+            </span>
+            <span>{viewLabel}</span>
+          </div>
+          <div
+            className={`canvas-stage ${isSplitView ? 'split' : ''}`}
+            onDragOver={handleCanvasDragOver}
+            onDrop={handleCanvasDrop}
+          >
+            {isSplitView ? (
+              <div className="split-stage">
+                <div className="split-pane">
+                  <div className="split-label">{isMultiRoom ? '2D Plan' : '2D Layout'}</div>
+                  {isMultiRoom ? (
+                    <Plan2D
+                      rooms={rooms}
+                      items={design.items}
+                      activeRoomId={activeRoomId}
+                      selectedId={selectedId}
+                      globalShade={design.globalShade}
+                      activeTool={activeTool}
+                      readOnly={readOnly}
+                      onSelectRoom={setActiveRoomId}
+                      onSelectItem={setSelectedId}
+                      onStartAction={() => pushHistory(cloneDesign(design))}
+                      onPreviewChange={(items) => updateDesign({ ...design, items })}
+                      onCommitChange={(items) => {
+                        updateDesign({ ...design, items }, 'Plan updated')
+                      }}
+                      catalogPointerDragItemId={catalogPointerDragItemId}
+                      onDropCatalogItem={handleDropCatalogItem}
+                      onInvalidPlacement={(message, fallbackItems) => {
+                        if (fallbackItems) {
+                          updateDesign({ ...design, items: fallbackItems })
+                        }
+                        showStatus(message, 'warning')
+                      }}
+                    />
+                  ) : (
+                    <Layout2D
+                      room={activeRoom}
+                      items={activeRoomItems}
+                      selectedId={selectedId}
+                      globalShade={design.globalShade}
+                      activeTool={activeTool}
+                      readOnly={readOnly}
+                      onSelect={setSelectedId}
+                      onStartAction={() => pushHistory(cloneDesign(design))}
+                      onPreviewChange={(items) =>
+                        updateDesign({ ...design, items: mergeRoomItems(items) })
+                      }
+                      onCommitChange={(items) => {
+                        updateDesign(
+                          { ...design, items: mergeRoomItems(items) },
+                          'Layout updated',
+                        )
+                      }}
+                      catalogPointerDragItemId={catalogPointerDragItemId}
+                      onDropCatalogItem={handleDropCatalogItem}
+                      onInvalidPlacement={(message, fallbackItems) => {
+                        if (fallbackItems) {
+                          updateDesign({
+                            ...design,
+                            items: mergeRoomItems(fallbackItems),
+                          })
+                        }
+                        showStatus(message, 'warning')
+                      }}
+                    />
+                  )}
+                </div>
+                <div className="split-pane">
+                  <div className="split-label">3D View</div>
+                  {activeRoom && (
+                    <ThreeViewport
+                      room={activeRoom}
+                      items={activeRoomItems}
+                      catalog={catalog}
+                      globalShade={design.globalShade}
+                      selectedId={selectedId}
+                      activeTool={activeTool}
+                      readOnly={readOnly}
+                      catalogPointerDragItemId={catalogPointerDragItemId}
+                      onDropCatalogItem={handleDropCatalogItem}
+                      onSelect={setSelectedId}
+                      onStartAction={() => pushHistory(cloneDesign(design))}
+                      onPreviewChange={(items) =>
+                        updateDesign({ ...design, items: mergeRoomItems(items) })
+                      }
+                      onCommitChange={(items, message) =>
+                        updateDesign(
+                          { ...design, items: mergeRoomItems(items) },
+                          message || '3D layout updated',
+                        )
+                      }
+                      onInvalidPlacement={(message, fallbackItems) => {
+                        if (fallbackItems) {
+                          updateDesign({
+                            ...design,
+                            items: mergeRoomItems(fallbackItems),
+                          })
+                        }
+                        showStatus(message, 'warning')
+                      }}
+                    />
+                  )}
+                </div>
+              </div>
+            ) : viewMode === '2d' ? (
+              isMultiRoom ? (
+                <Plan2D
+                  rooms={rooms}
+                  items={design.items}
+                  activeRoomId={activeRoomId}
+                  selectedId={selectedId}
+                  globalShade={design.globalShade}
+                  activeTool={activeTool}
+                  readOnly={readOnly}
+                  onSelectRoom={setActiveRoomId}
+                  onSelectItem={setSelectedId}
+                  onStartAction={() => pushHistory(cloneDesign(design))}
+                  onPreviewChange={(items) => updateDesign({ ...design, items })}
+                  onCommitChange={(items) => {
+                    updateDesign({ ...design, items }, 'Plan updated')
+                  }}
+                  catalogPointerDragItemId={catalogPointerDragItemId}
+                  onDropCatalogItem={handleDropCatalogItem}
+                  onInvalidPlacement={(message, fallbackItems) => {
+                    if (fallbackItems) {
+                      updateDesign({ ...design, items: fallbackItems })
+                    }
+                    showStatus(message, 'warning')
+                  }}
+                />
+              ) : (
+                <Layout2D
+                  room={activeRoom}
+                  items={activeRoomItems}
+                  selectedId={selectedId}
+                  globalShade={design.globalShade}
+                  activeTool={activeTool}
+                  readOnly={readOnly}
+                  onSelect={setSelectedId}
+                  onStartAction={() => pushHistory(cloneDesign(design))}
+                  onPreviewChange={(items) =>
+                    updateDesign({ ...design, items: mergeRoomItems(items) })
+                  }
+                  onCommitChange={(items) => {
+                    updateDesign(
+                      { ...design, items: mergeRoomItems(items) },
+                      'Layout updated',
+                    )
+                  }}
+                  catalogPointerDragItemId={catalogPointerDragItemId}
+                  onDropCatalogItem={handleDropCatalogItem}
+                  onInvalidPlacement={(message, fallbackItems) => {
+                    if (fallbackItems) {
+                      updateDesign({
+                        ...design,
+                        items: mergeRoomItems(fallbackItems),
+                      })
+                    }
+                    showStatus(message, 'warning')
+                  }}
+                />
+              )
+            ) : viewMode === 'inside' ? (
+              activeRoom && (
+                <ThreeViewport
+                  room={activeRoom}
+                  items={activeRoomItems}
+                  catalog={catalog}
+                  globalShade={design.globalShade}
+                  selectedId={selectedId}
+                  activeTool={activeTool}
+                  readOnly={readOnly}
+                  controlMode="inside"
+                  catalogPointerDragItemId={catalogPointerDragItemId}
+                  onDropCatalogItem={handleDropCatalogItem}
+                  onSelect={setSelectedId}
+                  onStartAction={() => pushHistory(cloneDesign(design))}
+                  onPreviewChange={(items) =>
+                    updateDesign({ ...design, items: mergeRoomItems(items) })
+                  }
+                  onCommitChange={(items, message) =>
+                    updateDesign(
+                      { ...design, items: mergeRoomItems(items) },
+                      message || '3D layout updated',
+                    )
+                  }
+                  onInvalidPlacement={(message, fallbackItems) => {
+                    if (fallbackItems) {
+                      updateDesign({
+                        ...design,
+                        items: mergeRoomItems(fallbackItems),
+                      })
+                    }
+                    showStatus(message, 'warning')
+                  }}
+                />
+              )
+            ) : (
+              activeRoom && (
+                <ThreeViewport
+                  room={activeRoom}
+                  items={activeRoomItems}
+                  catalog={catalog}
+                  globalShade={design.globalShade}
+                  selectedId={selectedId}
+                  activeTool={activeTool}
+                  readOnly={readOnly}
+                  catalogPointerDragItemId={catalogPointerDragItemId}
+                  onDropCatalogItem={handleDropCatalogItem}
+                  onSelect={setSelectedId}
+                  onStartAction={() => pushHistory(cloneDesign(design))}
+                  onPreviewChange={(items) =>
+                    updateDesign({ ...design, items: mergeRoomItems(items) })
+                  }
+                  onCommitChange={(items, message) =>
+                    updateDesign(
+                      { ...design, items: mergeRoomItems(items) },
+                      message || '3D layout updated',
+                    )
+                  }
+                  onInvalidPlacement={(message, fallbackItems) => {
+                    if (fallbackItems) {
+                      updateDesign({
+                        ...design,
+                        items: mergeRoomItems(fallbackItems),
+                      })
+                    }
+                    showStatus(message, 'warning')
+                  }}
+                />
+              )
+            )}
+          </div>
+          <div className="canvas-footer">
+            <span>Designer: {user?.name || 'Designer'}</span>
+            <span>
+              {isMultiRoom
+                ? `${activeRoomItems.length} items in room · ${design.items.length} total`
+                : `${design.items.length} items`}
+            </span>
+            <span>
+              {selectedItem
+                ? `Selected: ${selectedItem.width.toFixed(2)}m x ${selectedItem.depth.toFixed(
+                    2,
+                  )}m @ (${selectedItem.x.toFixed(2)}, ${selectedItem.y.toFixed(2)})`
+                : 'No item selected'}
+            </span>
+          </div>
+        </main>
+
+        <aside className="panel">
+          {selectedItem ? (
+            <>
+              <h3 className="panel-title">Furniture Properties</h3>
+              <div className="properties-list">
+                <div className="properties-section">
+                  <label className="field">
+                    Label
+                    <input
+                      type="text"
+                      value={selectedItem.label}
+                      onFocus={beginPanelEdit}
+                      onChange={(event) => handleItemChange('label', event.target.value)}
+                      onBlur={() => endPanelEdit('Label updated')}
+                      disabled={!canEdit}
+                    />
+                  </label>
+                  <label className="field">
+                    Width (m)
+                    <input
+                      type="number"
+                      min="0.2"
+                      step="0.05"
+                      value={selectedItem.width}
+                      onFocus={beginPanelEdit}
+                      onChange={(event) =>
+                        handleItemChange('width', Number(event.target.value))
+                      }
+                      onBlur={() => endPanelEdit('Width updated')}
+                      disabled={!canEdit}
+                    />
+                  </label>
+                  <label className="field">
+                    Depth (m)
+                    <input
+                      type="number"
+                      min="0.2"
+                      step="0.05"
+                      value={selectedItem.depth}
+                      onFocus={beginPanelEdit}
+                      onChange={(event) =>
+                        handleItemChange('depth', Number(event.target.value))
+                      }
+                      onBlur={() => endPanelEdit('Depth updated')}
+                      disabled={!canEdit}
+                    />
+                  </label>
+                  <ColorSwatchField
+                    label="Colour"
+                    value={selectedItem.color}
+                    presets={ITEM_COLOR_PRESETS}
+                    onChange={(nextColor) => handleItemChange('color', nextColor)}
+                    onPresetSelect={(nextColor) =>
+                      applyInstantPanelChange(
+                        () => handleItemChange('color', nextColor),
+                        'Colour updated',
+                      )
+                    }
+                    onCustomFocus={beginPanelEdit}
+                    onCustomBlur={() => endPanelEdit('Colour updated')}
+                    disabled={!canEdit}
+                  />
+                  <label className="field">
+                    Shade
+                    <input
+                      type="range"
+                      min="0"
+                      max="0.6"
+                      step="0.02"
+                      value={selectedItem.shade}
+                      onFocus={beginPanelEdit}
+                      onChange={(event) =>
+                        handleItemChange('shade', Number(event.target.value))
+                      }
+                      onBlur={() => endPanelEdit('Shade updated')}
+                      disabled={!canEdit}
+                    />
+                  </label>
+                  <button className="btn btn-ghost" onClick={handleDeleteItem} disabled={!canEdit}>
+                    Delete selected item
+                  </button>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <h3 className="panel-title">Room Properties</h3>
+              <div className="properties-list">
+                {isMultiRoom && (
+                  <div className="properties-section">
+                    <h4>Rooms</h4>
+                    <div className="room-list">
+                      {rooms.map((room, index) => (
+                        <button
+                          key={room.id}
+                          type="button"
+                          className={`room-chip ${
+                            room.id === activeRoomId ? 'active' : ''
+                          }`}
+                          onClick={() => setActiveRoomId(room.id)}
+                        >
+                          {room.name || `Room ${index + 1}`}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="inline-actions">
+                      <button
+                        className="btn btn-ghost"
+                        type="button"
+                        onClick={handleAddRoom}
+                        disabled={!canEdit}
+                      >
+                        Add room
+                      </button>
+                      <button
+                        className="btn btn-ghost"
+                        type="button"
+                        onClick={() => handleRemoveRoom(activeRoomId)}
+                        disabled={!canEdit || rooms.length <= 1}
+                      >
+                        Remove room
+                      </button>
+                    </div>
+                  </div>
+                )}
+                <div className="properties-section">
+                  <label className="field">
+                    Room Name
+                    <input
+                      type="text"
+                      value={activeRoom?.name || ''}
+                      onFocus={beginPanelEdit}
+                      onChange={(event) => handleRoomChange('name', event.target.value)}
+                      onBlur={() => endPanelEdit('Room name updated')}
+                      disabled={!canEdit}
+                    />
+                  </label>
+                  <div className="form-row">
+                    <label className="field">
+                      Width (m)
+                      <input
+                        type="number"
+                        min="1"
+                        step="0.1"
+                        value={activeRoom?.width || 0}
+                        onFocus={beginPanelEdit}
+                        onChange={(event) =>
+                          handleRoomChange('width', Number(event.target.value))
+                        }
+                        onBlur={() => endPanelEdit('Room width updated')}
+                        disabled={!canEdit}
+                      />
+                    </label>
+                    <label className="field">
+                      Length (m)
+                      <input
+                        type="number"
+                        min="1"
+                        step="0.1"
+                        value={activeRoom?.depth || 0}
+                        onFocus={beginPanelEdit}
+                        onChange={(event) =>
+                          handleRoomChange('depth', Number(event.target.value))
+                        }
+                        onBlur={() => endPanelEdit('Room length updated')}
+                        disabled={!canEdit}
+                      />
+                    </label>
+                    <label className="field">
+                      Height (m)
+                      <input
+                        type="number"
+                        min="2"
+                        step="0.1"
+                        value={activeRoom?.height || 0}
+                        onFocus={beginPanelEdit}
+                        onChange={(event) =>
+                          handleRoomChange('height', Number(event.target.value))
+                        }
+                        onBlur={() => endPanelEdit('Room height updated')}
+                        disabled={!canEdit}
+                      />
+                    </label>
+                  </div>
+                  {isMultiRoom && (
+                    <div className="form-row">
+                      <label className="field">
+                        Plan X (m)
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.1"
+                          value={activeRoom?.x ?? 0}
+                          onFocus={beginPanelEdit}
+                          onChange={(event) =>
+                            handleRoomChange('x', Number(event.target.value))
+                          }
+                          onBlur={() => endPanelEdit('Room position updated')}
+                          disabled={!canEdit}
+                        />
+                      </label>
+                      <label className="field">
+                        Plan Y (m)
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.1"
+                          value={activeRoom?.y ?? 0}
+                          onFocus={beginPanelEdit}
+                          onChange={(event) =>
+                            handleRoomChange('y', Number(event.target.value))
+                          }
+                          onBlur={() => endPanelEdit('Room position updated')}
+                          disabled={!canEdit}
+                        />
+                      </label>
+                    </div>
+                  )}
+                </div>
+
+                <div className="properties-section">
+                  <div className="color-row">
+                    <ColorSwatchField
+                      label="Wall Color"
+                      value={activeRoom?.wallColor || '#FFFFFF'}
+                      presets={WALL_COLOR_PRESETS}
+                      onChange={(nextColor) => handleRoomChange('wallColor', nextColor)}
+                      onPresetSelect={(nextColor) =>
+                        applyInstantPanelChange(
+                          () => handleRoomChange('wallColor', nextColor),
+                          'Wall color updated',
+                        )
+                      }
+                      onCustomFocus={beginPanelEdit}
+                      onCustomBlur={() => endPanelEdit('Wall color updated')}
+                      disabled={!canEdit}
+                    />
+                    <ColorSwatchField
+                      label="Floor Color"
+                      value={activeRoom?.floorColor || '#FFFFFF'}
+                      presets={FLOOR_COLOR_PRESETS}
+                      onChange={(nextColor) => handleRoomChange('floorColor', nextColor)}
+                      onPresetSelect={(nextColor) =>
+                        applyInstantPanelChange(
+                          () => handleRoomChange('floorColor', nextColor),
+                          'Floor color updated',
+                        )
+                      }
+                      onCustomFocus={beginPanelEdit}
+                      onCustomBlur={() => endPanelEdit('Floor color updated')}
+                      disabled={!canEdit}
+                    />
+                  </div>
+                </div>
+
+                <details className="properties-section" open={!readOnly}>
+                  <summary>Design Styling</summary>
+                  <ColorSwatchField
+                    label="Accent Colour"
+                    value={design.accentColor}
+                    presets={ACCENT_COLOR_PRESETS}
+                    showNoneOption
+                    noneActive={!accentOverrideEnabled}
+                    onNoneSelect={() =>
+                      applyInstantPanelChange(
+                        () => updateDesign(buildAccentDesign(design.accentColor, false)),
+                        'Original colours restored',
+                      )
+                    }
+                    onChange={(nextColor) => updateDesign(buildAccentDesign(nextColor, true))}
+                    onPresetSelect={(nextColor) =>
+                      applyInstantPanelChange(
+                        () => updateDesign(buildAccentDesign(nextColor, true)),
+                        'Accent colour applied',
+                      )
+                    }
+                    onCustomFocus={beginPanelEdit}
+                    onCustomBlur={() => endPanelEdit('Accent colour applied')}
+                    disabled={!canEdit}
+                  />
+                  <label className="field">
+                    Global Shade
+                    <input
+                      type="range"
+                      min="0"
+                      max="0.6"
+                      step="0.02"
+                      value={design.globalShade}
+                      onFocus={beginPanelEdit}
+                      onChange={(event) =>
+                        updateDesign({
+                          ...design,
+                          globalShade: Number(event.target.value),
+                        })
+                      }
+                      onBlur={() => endPanelEdit('Global shade updated')}
+                      disabled={!canEdit}
+                    />
+                  </label>
+                  <button className="btn btn-ghost" onClick={applyShadeToAll} disabled={!canEdit}>
+                    Apply shade to all
+                  </button>
+                </details>
+              </div>
+            </>
+          )}
+        </aside>
+      </div>
+      {draggedCatalogItem && catalogPointerDrag?.dragging && (
+        <div
+          className="catalog-drag-preview"
+          style={{
+            left: catalogPointerDrag.currentX + 18,
+            top: catalogPointerDrag.currentY + 18,
+          }}
+          aria-hidden="true"
+        >
+          <div className="catalog-drag-preview-thumb">
+            <FurnitureThumbnail item={draggedCatalogItem} />
+          </div>
+          <div className="catalog-drag-preview-copy">{draggedCatalogItem.name}</div>
+        </div>
+      )}
+      {exportDialogOpen && (
+        <div className="export-dialog-backdrop" onClick={() => !exporting && setExportDialogOpen(false)}>
+          <div
+            className="export-dialog card"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="export-dialog-title"
+          >
+            <div className="export-dialog-header">
+              <div>
+                <h3 id="export-dialog-title">Export Design</h3>
+                <p>Choose the view and file format to export.</p>
+              </div>
+              <button
+                className="btn btn-ghost"
+                type="button"
+                onClick={() => setExportDialogOpen(false)}
+                disabled={exporting}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="export-dialog-grid">
+              <div className="field">
+                <span>View</span>
+                <div className="export-choice-row">
+                  {[
+                    { value: '2d', label: '2D View' },
+                    { value: '3d', label: '3D View' },
+                    { value: 'split', label: 'Split Both' },
+                  ].map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className={`export-choice ${exportView === option.value ? 'active' : ''}`}
+                      onClick={() => setExportView(option.value)}
+                      disabled={exporting}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="field">
+                <span>Format</span>
+                <div className="export-choice-row">
+                  {[
+                    { value: 'png', label: 'PNG' },
+                    { value: 'pdf', label: 'PDF' },
+                  ].map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className={`export-choice ${exportFormat === option.value ? 'active' : ''}`}
+                      onClick={() => setExportFormat(option.value)}
+                      disabled={exporting}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="export-dialog-actions">
+              <button
+                className="btn btn-ghost"
+                type="button"
+                onClick={() => setExportDialogOpen(false)}
+                disabled={exporting}
+              >
+                Cancel
+              </button>
+              <button className="btn btn-primary" type="button" onClick={handleExport} disabled={exporting}>
+                {exporting ? 'Preparing export...' : 'Export'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+

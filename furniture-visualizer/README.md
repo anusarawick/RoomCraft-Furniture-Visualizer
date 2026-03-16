@@ -1,16 +1,44 @@
-# React + Vite
+# RoomCraft Furniture Visualizer
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+RoomCraft is a web-based room design system for furniture consultations. It supports accurate 2D planning, interactive 3D visualization, and reusable saved designs.
 
-Currently, two official plugins are available:
+## Core Features
+- Designer login and dashboard workflow.
+- Create room specification (size, height, wall/floor colors).
+- 2D layout editor (drag, rotate, resize, shading).
+- Multi-room plan view.
+- 3D viewport with orbit + inside controls.
+- Color and shading controls (room + item + global).
+- Save, edit, delete, and reopen designs.
+- Undo/redo history support.
+- Accessibility toggles (high contrast, larger text, reduced motion).
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Innovation Features Added
+- Snap-to-grid alignment (0.1m) for move/resize.
+- Split 2D + 3D view mode.
+- Export 2D plan to PNG for consultation/report evidence.
+- Selected item live measurement readout.
 
-## React Compiler
+## Technology
+- React 19
+- Vite
+- Three.js
+- Browser local storage persistence
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Run Locally
+1. `npm install`
+2. `npm run dev`
+3. `npm run lint`
+4. `npm run build`
 
-## Expanding the ESLint configuration
+## Coursework Documentation
+Full report and appendices are included under `docs/`:
+- Main report draft: `docs/report/PUSL3122_Report.md`
+- Design artifacts: `docs/design/`
+- Evaluation artifacts: `docs/evaluation/`
+- Scrum/process artifacts: `docs/scrum/`
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+Before submission:
+- Replace placeholder GitHub/YouTube links in the report.
+- Export report markdown to a single PDF.
+- Insert final screenshots from running app and prototypes.
