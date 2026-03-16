@@ -57,7 +57,7 @@ export default function Help() {
       tips: [
         'Save changes regularly during consultations.',
         'Use My Designs to reopen or duplicate layouts.',
-        'Use Export Plan PNG to capture evidence for your report.',
+        'Use Export to save a 2D, 3D, or split snapshot for your report.',
       ],
     },
   ]

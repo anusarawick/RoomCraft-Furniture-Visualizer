@@ -25,7 +25,11 @@ export const setupSceneRuntime = ({ container, controlMode, refs }) => {
     camera.position.set(roomData.width * 0.6, roomData.height * 1.1, roomData.depth * 1.2)
   }
 
-  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
+  const renderer = new THREE.WebGLRenderer({
+    antialias: true,
+    alpha: true,
+    preserveDrawingBuffer: true,
+  })
   renderer.setPixelRatio(window.devicePixelRatio || 1)
   renderer.setSize(container.clientWidth, container.clientHeight)
   renderer.shadowMap.enabled = true

@@ -1887,6 +1887,92 @@ input[type='search']:focus {
   flex-wrap: wrap;
 }
 
+.export-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(44, 33, 23, 0.28);
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  z-index: 30;
+}
+
+.export-dialog {
+  width: min(520px, 100%);
+  border-radius: 24px;
+  padding: 22px;
+  display: grid;
+  gap: 18px;
+  box-shadow: 0 30px 60px rgba(45, 32, 20, 0.16);
+}
+
+.export-dialog-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.export-dialog-header h3 {
+  margin: 0;
+  color: var(--text);
+}
+
+.export-dialog-header p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.export-dialog-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.export-choice-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.export-choice {
+  min-width: 104px;
+  padding: 0.8rem 1rem;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--text);
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    color 0.2s ease,
+    transform 0.2s ease;
+}
+
+.export-choice:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: var(--accent);
+}
+
+.export-choice.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.export-choice:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.export-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 /* ============================
    LAYOUT 2D
    ============================ */

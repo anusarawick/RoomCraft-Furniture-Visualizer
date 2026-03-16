@@ -1,9 +1,16 @@
 ﻿import { useEffect, useMemo, useRef, useState } from 'react'
+import { createRoot } from 'react-dom/client'
 import Layout2D from '../../member 2/Layout2D'
 import Plan2D from '../../member 2/Plan2D'
 import ThreeViewport from '../../member 3/ThreeViewport'
 import { clamp } from '../../member 2/clamp'
 import { shadeColor } from '../../member 3/color'
+import {
+  cloneCanvas,
+  createSplitExportCanvas,
+  downloadCanvasAsPdf,
+  downloadCanvasAsPng,
+} from '../../utils/canvasExport'
 import { cloneDesign } from '../../utils/clone'
 import { createId } from '../../utils/ids'
 import { isPlacementConflicting } from '../../utils/collision'
@@ -300,6 +307,11 @@ export default function Editor({
     () => design?.rooms?.[0]?.id || design?.room?.id || null,
   )
   const statusTimer = useRef(null)
+  const canvasStageRef = useRef(null)
+  const [exportDialogOpen, setExportDialogOpen] = useState(false)
+  const [exportView, setExportView] = useState('2d')
+  const [exportFormat, setExportFormat] = useState('png')
+  const [exporting, setExporting] = useState(false)
   const { notify } = useNotifications()
   const canEdit = !readOnly
   const rooms = useMemo(() => {
@@ -325,6 +337,8 @@ export default function Editor({
     setFuture([])
     setViewMode(initialViewMode)
     setPanelEditActive(false)
+    setExportDialogOpen(false)
+    setExporting(false)
   }, [design?.id, initialViewMode])
 
   useEffect(() => {
@@ -731,10 +745,16 @@ export default function Editor({
     return design.items.map((item) => map.get(item.id) || item)
   }
 
-  const handleExportPlan = () => {
-    if (!rooms.length) return
+  const openExportDialog = () => {
+    setExportView(isSplitView ? 'split' : viewMode === '2d' ? '2d' : '3d')
+    setExportFormat('png')
+    setExportDialogOpen(true)
+  }
+
+  const build2DExportCanvas = () => {
+    if (!rooms.length) return null
     const bounds = getPlanBounds(rooms)
-    if (!Number.isFinite(bounds.minX) || !Number.isFinite(bounds.minY)) return
+    if (!Number.isFinite(bounds.minX) || !Number.isFinite(bounds.minY)) return null
 
     const widthMeters = Math.max(1, bounds.maxX - bounds.minX)
     const heightMeters = Math.max(1, bounds.maxY - bounds.minY)
@@ -742,7 +762,7 @@ export default function Editor({
     canvas.width = Math.round(widthMeters * EXPORT_SCALE + EXPORT_PADDING * 2)
     canvas.height = Math.round(heightMeters * EXPORT_SCALE + EXPORT_PADDING * 2)
     const ctx = canvas.getContext('2d')
-    if (!ctx) return
+    if (!ctx) return null
 
     ctx.fillStyle = '#f6f1eb'
     ctx.fillRect(0, 0, canvas.width, canvas.height)
@@ -833,11 +853,116 @@ export default function Editor({
       ctx.restore()
     })
 
-    const link = document.createElement('a')
-    link.href = canvas.toDataURL('image/png')
-    link.download = `${sanitizeFileName(design.name)}-plan.png`
-    link.click()
-    showStatus('2D plan exported as PNG', 'success')
+    return canvas
+  }
+
+  const waitForNextFrame = () =>
+    new Promise((resolve) => {
+      window.requestAnimationFrame(() => window.requestAnimationFrame(resolve))
+    })
+
+  const waitForThreeCanvasReady = async (root, timeoutMs = 4500) => {
+    const startedAt = Date.now()
+    while (Date.now() - startedAt < timeoutMs) {
+      const canvas = root.querySelector('.three-stage canvas')
+      const loading = root.querySelector('.three-loading')
+      if (canvas && !loading) {
+        await waitForNextFrame()
+        return canvas
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 80))
+    }
+    return root.querySelector('.three-stage canvas')
+  }
+
+  const captureVisibleThreeCanvas = async () => {
+    const visibleCanvas = await waitForThreeCanvasReady(canvasStageRef.current || document.body, 1200)
+    return visibleCanvas ? cloneCanvas(visibleCanvas) : null
+  }
+
+  const renderThreeExportCanvas = async () => {
+    if (!activeRoom) return null
+    const host = document.createElement('div')
+    host.style.position = 'fixed'
+    host.style.left = '-10000px'
+    host.style.top = '0'
+    host.style.width = '1280px'
+    host.style.height = '800px'
+    document.body.appendChild(host)
+    const root = createRoot(host)
+
+    root.render(
+      <ThreeViewport
+        room={activeRoom}
+        items={activeRoomItems}
+        catalog={catalog}
+        globalShade={design.globalShade}
+        selectedId={null}
+        activeTool="select"
+        readOnly
+        controlMode="orbit"
+      />,
+    )
+
+    try {
+      const canvas = await waitForThreeCanvasReady(host)
+      return canvas ? cloneCanvas(canvas) : null
+    } finally {
+      root.unmount()
+      host.remove()
+    }
+  }
+
+  const buildExportCanvas = async () => {
+    if (exportView === '2d') {
+      return build2DExportCanvas()
+    }
+
+    const threeCanvas =
+      viewMode === '3d' || isSplitView ? await captureVisibleThreeCanvas() : await renderThreeExportCanvas()
+
+    if (exportView === '3d') {
+      return threeCanvas
+    }
+
+    const layoutCanvas = build2DExportCanvas()
+    if (!layoutCanvas || !threeCanvas) return null
+    return createSplitExportCanvas({
+      leftCanvas: layoutCanvas,
+      rightCanvas: threeCanvas,
+      leftLabel: '2D View',
+      rightLabel: '3D View',
+    })
+  }
+
+  const handleExport = async () => {
+    if (exporting) return
+    setExporting(true)
+
+    try {
+      const canvas = await buildExportCanvas()
+      if (!canvas) {
+        showStatus('Unable to prepare export preview.', 'warning')
+        return
+      }
+
+      const exportName = `${sanitizeFileName(design.name)}-${exportView}`
+      if (exportFormat === 'pdf') {
+        downloadCanvasAsPdf(canvas, `${exportName}.pdf`)
+      } else {
+        downloadCanvasAsPng(canvas, `${exportName}.png`)
+      }
+
+      setExportDialogOpen(false)
+      showStatus(
+        `${exportView === 'split' ? 'Split view' : `${exportView.toUpperCase()} view`} exported as ${exportFormat.toUpperCase()}`,
+        'success',
+      )
+    } catch {
+      showStatus('Export failed. Try again.', 'warning')
+    } finally {
+      setExporting(false)
+    }
   }
 
   return (
@@ -948,8 +1073,8 @@ export default function Editor({
           <button className="btn btn-ghost" onClick={onExit}>
             Back
           </button>
-          <button className="btn btn-ghost" onClick={handleExportPlan}>
-            Export Plan PNG
+          <button className="btn btn-ghost" onClick={openExportDialog} type="button">
+            Export
           </button>
           <button
             className="btn btn-primary"
@@ -1009,6 +1134,7 @@ export default function Editor({
             <span>{viewLabel}</span>
           </div>
           <div
+            ref={canvasStageRef}
             className={`canvas-stage ${isSplitView ? 'split' : ''}`}
             onDragOver={handleCanvasDragOver}
             onDrop={handleCanvasDrop}
@@ -1587,6 +1713,89 @@ export default function Editor({
           )}
         </aside>
       </div>
+      {exportDialogOpen && (
+        <div className="export-dialog-backdrop" onClick={() => !exporting && setExportDialogOpen(false)}>
+          <div
+            className="export-dialog card"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="export-dialog-title"
+          >
+            <div className="export-dialog-header">
+              <div>
+                <h3 id="export-dialog-title">Export Design</h3>
+                <p>Choose the view and file format to export.</p>
+              </div>
+              <button
+                className="btn btn-ghost"
+                type="button"
+                onClick={() => setExportDialogOpen(false)}
+                disabled={exporting}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="export-dialog-grid">
+              <div className="field">
+                <span>View</span>
+                <div className="export-choice-row">
+                  {[
+                    { value: '2d', label: '2D View' },
+                    { value: '3d', label: '3D View' },
+                    { value: 'split', label: 'Split Both' },
+                  ].map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className={`export-choice ${exportView === option.value ? 'active' : ''}`}
+                      onClick={() => setExportView(option.value)}
+                      disabled={exporting}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="field">
+                <span>Format</span>
+                <div className="export-choice-row">
+                  {[
+                    { value: 'png', label: 'PNG' },
+                    { value: 'pdf', label: 'PDF' },
+                  ].map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className={`export-choice ${exportFormat === option.value ? 'active' : ''}`}
+                      onClick={() => setExportFormat(option.value)}
+                      disabled={exporting}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="export-dialog-actions">
+              <button
+                className="btn btn-ghost"
+                type="button"
+                onClick={() => setExportDialogOpen(false)}
+                disabled={exporting}
+              >
+                Cancel
+              </button>
+              <button className="btn btn-primary" type="button" onClick={handleExport} disabled={exporting}>
+                {exporting ? 'Preparing export...' : 'Export'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
