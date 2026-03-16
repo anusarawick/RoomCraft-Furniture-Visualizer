@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import FurnitureIcon from './FurnitureIcon'
+import FurnitureThumbnail from '../components/FurnitureThumbnail'
 
 const toEditableNumber = (value) => String(value ?? '')
 
@@ -57,7 +57,9 @@ export default function Catalog({ catalog, onUpdateItem }) {
             onClick={() => setEditingItem(item)}
           >
             <div className="catalog-banner">
-              <FurnitureIcon name={item.icon} />
+              <div className="catalog-thumbnail">
+                <FurnitureThumbnail item={item} />
+              </div>
             </div>
             <div>
               <strong>{item.name}</strong>

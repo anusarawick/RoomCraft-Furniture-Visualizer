@@ -4,6 +4,7 @@ import { clamp } from '../member 2/clamp'
 import { cloneCanvas } from '../utils/canvasExport'
 import { WINDOW_OUTSIDE_VIEW } from './threeViewport/viewportHelpers'
 import { isOpeningItem } from '../utils/openingPlacement'
+import { clampPointWithinRoom } from '../utils/roomShape'
 import { setupSceneRuntime } from './threeViewport/setupSceneRuntime'
 import {
   buildFurnitureGroup,
@@ -20,11 +21,13 @@ export default function ThreeViewport({
   activeTool,
   readOnly,
   controlMode = 'orbit',
+  catalogPointerDragItemId,
   onSelect,
   onStartAction,
   onPreviewChange,
   onCommitChange,
   onInvalidPlacement,
+  onDropCatalogItem,
   onRenderReady,
 }) {
   const containerRef = useRef(null)
@@ -56,6 +59,7 @@ export default function ThreeViewport({
     onInvalidPlacement,
   })
   const [modelVersion, setModelVersion] = useState(0)
+  const [isCatalogDropActive, setIsCatalogDropActive] = useState(false)
 
   useEffect(() => {
     latestItemsRef.current = items
@@ -231,8 +235,87 @@ export default function ThreeViewport({
     }
   }, [onRenderReady, isLoading, modelVersion, items, room, globalShade, selectedId, controlMode])
 
+  useEffect(() => {
+    if (
+      readOnly ||
+      controlMode === 'inside' ||
+      !onDropCatalogItem ||
+      !catalogPointerDragItemId
+    ) {
+      setIsCatalogDropActive(false)
+      return
+    }
+
+    const resolveCatalogDropPlacement = (clientX, clientY) => {
+      const renderer = rendererRef.current
+      const camera = cameraRef.current
+      if (!renderer || !camera || !room) return null
+
+      const rect = renderer.domElement.getBoundingClientRect()
+      if (
+        clientX < rect.left ||
+        clientX > rect.right ||
+        clientY < rect.top ||
+        clientY > rect.bottom
+      ) {
+        return null
+      }
+
+      pointerRef.current.x = ((clientX - rect.left) / rect.width) * 2 - 1
+      pointerRef.current.y = -((clientY - rect.top) / rect.height) * 2 + 1
+      raycasterRef.current.setFromCamera(pointerRef.current, camera)
+
+      const hitPoint = new THREE.Vector3()
+      const result = raycasterRef.current.ray.intersectPlane(planeRef.current, hitPoint)
+      if (!result) return null
+
+      const roomPoint = clampPointWithinRoom(
+        room,
+        hitPoint.x + room.width / 2,
+        hitPoint.z + room.depth / 2,
+        0.05,
+      )
+
+      return {
+        roomId: room.id,
+        centerX: roomPoint.x,
+        centerY: roomPoint.y,
+      }
+    }
+
+    const handlePointerMove = (event) => {
+      setIsCatalogDropActive(
+        Boolean(resolveCatalogDropPlacement(event.clientX, event.clientY)),
+      )
+    }
+
+    const handlePointerUp = (event) => {
+      const placement = resolveCatalogDropPlacement(event.clientX, event.clientY)
+      setIsCatalogDropActive(false)
+      if (!placement) return
+      onDropCatalogItem(catalogPointerDragItemId, placement)
+    }
+
+    const handlePointerCancel = () => {
+      setIsCatalogDropActive(false)
+    }
+
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', handlePointerUp)
+    window.addEventListener('pointercancel', handlePointerCancel)
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', handlePointerUp)
+      window.removeEventListener('pointercancel', handlePointerCancel)
+    }
+  }, [catalogPointerDragItemId, controlMode, onDropCatalogItem, readOnly, room])
+
   return (
-    <div className="three-stage" ref={containerRef}>
+    <div
+      className={`three-stage${isCatalogDropActive ? ' is-catalog-drop-active' : ''}`}
+      ref={containerRef}
+    >
       {isLoading && <div className="three-loading">Loading 3D models...</div>}
       {missingModels.length > 0 && (
         <div className="three-warning">

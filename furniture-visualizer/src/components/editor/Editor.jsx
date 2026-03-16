@@ -85,6 +85,7 @@ const ADD_PLACEMENT_STEP = 0.1
 const EXPORT_SCALE = 120
 const EXPORT_PADDING = 56
 const CATALOG_ITEM_MIME = 'application/x-roomcraft-catalog-item'
+const PASTE_OFFSET = 0.3
 
 const sanitizeFileName = (name) =>
   (name || 'roomcraft-plan')
@@ -134,6 +135,17 @@ const resolveDroppedCatalogId = (dataTransfer) => {
     dataTransfer.getData(CATALOG_ITEM_MIME) ||
     dataTransfer.getData('text/plain') ||
     ''
+  )
+}
+
+const isTypingTarget = (target) => {
+  if (!target || !(target instanceof HTMLElement)) return false
+  const tagName = target.tagName
+  return (
+    target.isContentEditable ||
+    tagName === 'INPUT' ||
+    tagName === 'TEXTAREA' ||
+    tagName === 'SELECT'
   )
 }
 
@@ -324,6 +336,7 @@ export default function Editor({
     () => design?.rooms?.[0]?.id || design?.room?.id || null,
   )
   const [catalogPointerDrag, setCatalogPointerDrag] = useState(null)
+  const copiedItemRef = useRef(null)
   const statusTimer = useRef(null)
   const [exportDialogOpen, setExportDialogOpen] = useState(false)
   const [exportView, setExportView] = useState('2d')
@@ -703,6 +716,79 @@ export default function Editor({
     showStatus('Item removed', 'warning')
   }
 
+  const handleCopyItem = () => {
+    if (!canEdit || !selectedItem) return
+    copiedItemRef.current = cloneDesign(selectedItem)
+    showStatus(`${selectedItem.label} copied`, 'info')
+  }
+
+  const handlePasteItem = () => {
+    if (!canEdit) return
+    const copiedItem = copiedItemRef.current
+    if (!copiedItem) return
+
+    const targetRoom =
+      rooms.find((room) => room.id === copiedItem.roomId) || activeRoom || rooms[0] || null
+    if (!targetRoom) return
+
+    const targetRoomItems = getRoomItems(targetRoom.id)
+    const newItem = {
+      ...cloneDesign(copiedItem),
+      id: createId(),
+      roomId: targetRoom.id,
+    }
+
+    if (isOpeningItem(newItem)) {
+      const preferredCenter = {
+        x: newItem.x + newItem.width / 2 + PASTE_OFFSET,
+        y: newItem.y + newItem.depth / 2 + PASTE_OFFSET,
+      }
+      const placement = findAvailableOpeningPlacement({
+        baseItem: newItem,
+        room: targetRoom,
+        existingItems: targetRoomItems,
+        defaultRoomId: targetRoom.id,
+        preferredCenter,
+      })
+      if (!placement) {
+        showStatus(`No wall space to paste ${newItem.label}.`, 'warning')
+        return
+      }
+      newItem.x = placement.x
+      newItem.y = placement.y
+      newItem.width = placement.width
+      newItem.depth = placement.depth
+      newItem.openingWall = placement.openingWall
+      newItem.rotation = 0
+    } else {
+      const availablePosition = findAvailablePosition({
+        baseItem: newItem,
+        room: targetRoom,
+        existingItems: targetRoomItems,
+        defaultRoomId: targetRoom.id,
+        preferredPosition: {
+          x: newItem.x + PASTE_OFFSET,
+          y: newItem.y + PASTE_OFFSET,
+        },
+      })
+      if (!availablePosition) {
+        showStatus(`No space to paste ${newItem.label}.`, 'warning')
+        return
+      }
+      newItem.x = availablePosition.x
+      newItem.y = availablePosition.y
+    }
+
+    pushHistory(cloneDesign(design))
+    commitDesign({
+      ...design,
+      items: [...design.items, newItem],
+    })
+    setSelectedId(newItem.id)
+    setActiveRoomId(targetRoom.id)
+    showStatus(`${newItem.label} pasted`, 'success')
+  }
+
   const handleRotate90 = (direction) => {
     if (!canEdit || !selectedItem) return
     pushHistory(cloneDesign(design))
@@ -866,6 +952,51 @@ export default function Editor({
     setExportFormat('png')
     setExportDialogOpen(true)
   }
+
+  useEffect(() => {
+    if (!canEdit) return
+
+    const handleKeyDown = (event) => {
+      if (exportDialogOpen || isTypingTarget(event.target)) return
+
+      const key = event.key.toLowerCase()
+      const hasShortcutModifier = event.ctrlKey || event.metaKey
+
+      if (event.key === 'Delete' && selectedItem) {
+        event.preventDefault()
+        handleDeleteItem()
+        return
+      }
+
+      if (!hasShortcutModifier) return
+
+      if (key === 'z' && !event.shiftKey) {
+        event.preventDefault()
+        handleUndo()
+        return
+      }
+
+      if (key === 'y' || (key === 'z' && event.shiftKey)) {
+        event.preventDefault()
+        handleRedo()
+        return
+      }
+
+      if (key === 'c' && selectedItem) {
+        event.preventDefault()
+        handleCopyItem()
+        return
+      }
+
+      if (key === 'v' && copiedItemRef.current) {
+        event.preventDefault()
+        handlePasteItem()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [canEdit, exportDialogOpen, selectedItem, design, activeRoom, rooms, history.length, future.length])
 
   const build2DExportCanvas = () => {
     if (!rooms.length) return null
@@ -1329,6 +1460,8 @@ export default function Editor({
                       selectedId={selectedId}
                       activeTool={activeTool}
                       readOnly={readOnly}
+                      catalogPointerDragItemId={catalogPointerDragItemId}
+                      onDropCatalogItem={handleDropCatalogItem}
                       onSelect={setSelectedId}
                       onStartAction={() => pushHistory(cloneDesign(design))}
                       onPreviewChange={(items) =>
@@ -1422,6 +1555,8 @@ export default function Editor({
                   activeTool={activeTool}
                   readOnly={readOnly}
                   controlMode="inside"
+                  catalogPointerDragItemId={catalogPointerDragItemId}
+                  onDropCatalogItem={handleDropCatalogItem}
                   onSelect={setSelectedId}
                   onStartAction={() => pushHistory(cloneDesign(design))}
                   onPreviewChange={(items) =>
@@ -1454,6 +1589,8 @@ export default function Editor({
                   selectedId={selectedId}
                   activeTool={activeTool}
                   readOnly={readOnly}
+                  catalogPointerDragItemId={catalogPointerDragItemId}
+                  onDropCatalogItem={handleDropCatalogItem}
                   onSelect={setSelectedId}
                   onStartAction={() => pushHistory(cloneDesign(design))}
                   onPreviewChange={(items) =>
