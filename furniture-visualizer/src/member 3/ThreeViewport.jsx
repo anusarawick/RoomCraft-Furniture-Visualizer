@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { clamp } from '../member 2/clamp'
 import { WINDOW_OUTSIDE_VIEW } from './threeViewport/viewportHelpers'
+import { isOpeningItem } from '../utils/openingPlacement'
 import { setupSceneRuntime } from './threeViewport/setupSceneRuntime'
 import {
   buildFurnitureGroup,
@@ -199,6 +200,7 @@ export default function ThreeViewport({
   }, [items, catalog, room, globalShade, selectedId, modelVersion])
 
   const isLoading = items.some((item) => {
+    if (isOpeningItem(item)) return false
     const catalogItem = catalog.find((entry) => entry.id === item.type)
     if (!catalogItem?.model) return false
     const info = modelCacheRef.current[catalogItem.model]
@@ -207,6 +209,7 @@ export default function ThreeViewport({
 
   const missingModels = items
     .map((item) => {
+      if (isOpeningItem(item)) return null
       const catalogItem = catalog.find((entry) => entry.id === item.type)
       if (!catalogItem?.model) return item.label
       const info = modelCacheRef.current[catalogItem.model]

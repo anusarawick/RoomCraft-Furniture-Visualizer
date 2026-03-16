@@ -65,6 +65,7 @@ export const resolveModelSource = (modelInfo, catalogItem) => {
 }
 
 const OPENING_WALLS = new Set(['top', 'bottom', 'left', 'right'])
+const OPENING_SURFACE_INSET = 0.01
 
 const resolveOpeningWall = (item, room) => {
   if (OPENING_WALLS.has(item?.openingWall)) return item.openingWall
@@ -101,17 +102,76 @@ export const createOpeningObject = ({
   const depth = Math.max(0.12, item.depth || 0.2)
   const openingWall = resolveOpeningWall(item, room)
   const isHorizontalWall = openingWall === 'top' || openingWall === 'bottom'
-  const insideSign = openingWall === 'top' || openingWall === 'left' ? 1 : -1
+  const openingSpan = isHorizontalWall ? width : depth
+  const wallThickness = isHorizontalWall ? depth : width
   const fallbackColor = isConflict ? '#ef4444' : item.color || '#d7c7b2'
   const baseColor = shadeColor(fallbackColor, (item.shade || 0) + globalShade * 0.35)
   const frameColor = new THREE.Color(baseColor)
-  const accentColor = new THREE.Color(shadeColor(baseColor, 0.12))
+  const accentColor = new THREE.Color(shadeColor(fallbackColor, (item.shade || 0) + globalShade * 0.52))
+  const revealColor = new THREE.Color(shadeColor(room?.wallColor || '#d7c7b2', 0.28))
   const group = new THREE.Group()
+  const wallMount = new THREE.Group()
+
+  if (openingWall === 'top') {
+    wallMount.position.z = -depth / 2 + OPENING_SURFACE_INSET
+  } else if (openingWall === 'bottom') {
+    wallMount.position.z = depth / 2 - OPENING_SURFACE_INSET
+    wallMount.rotation.y = Math.PI
+  } else if (openingWall === 'left') {
+    wallMount.position.x = -width / 2 + OPENING_SURFACE_INSET
+    wallMount.rotation.y = Math.PI / 2
+  } else {
+    wallMount.position.x = width / 2 - OPENING_SURFACE_INSET
+    wallMount.rotation.y = -Math.PI / 2
+  }
+
+  group.add(wallMount)
 
   if (item.elementType === 'door') {
     const doorHeight = clamp(item.height || 2.1, 1.8, Math.max(2.1, room.height - 0.08))
+    const frameThickness = Math.min(0.08, Math.max(0.045, openingSpan * 0.06))
+    const frameDepth = Math.max(0.03, wallThickness * 0.32)
+    const revealPanel = new THREE.Mesh(
+      new THREE.PlaneGeometry(openingSpan, doorHeight),
+      new THREE.MeshStandardMaterial({
+        color: revealColor,
+        roughness: 0.9,
+        side: THREE.DoubleSide,
+      }),
+    )
+    revealPanel.position.set(0, doorHeight / 2, 0.004)
+    wallMount.add(revealPanel)
+
+    const leftFrame = new THREE.Mesh(
+      new THREE.BoxGeometry(frameThickness, doorHeight, frameDepth),
+      new THREE.MeshStandardMaterial({
+        color: accentColor,
+        roughness: 0.56,
+        metalness: 0.08,
+      }),
+    )
+    leftFrame.position.set(-openingSpan / 2 + frameThickness / 2, doorHeight / 2, 0.016)
+    wallMount.add(leftFrame)
+
+    const rightFrame = leftFrame.clone()
+    rightFrame.position.x *= -1
+    wallMount.add(rightFrame)
+
+    const topFrame = new THREE.Mesh(
+      new THREE.BoxGeometry(openingSpan, frameThickness, frameDepth),
+      new THREE.MeshStandardMaterial({
+        color: accentColor,
+        roughness: 0.56,
+        metalness: 0.08,
+      }),
+    )
+    topFrame.position.set(0, doorHeight - frameThickness / 2, 0.016)
+    wallMount.add(topFrame)
+
+    const panelWidth = Math.max(0.18, openingSpan - frameThickness * 2.2)
+    const panelHeight = Math.max(0.5, doorHeight - frameThickness * 0.9)
     const panel = new THREE.Mesh(
-      new THREE.BoxGeometry(width, doorHeight, depth),
+      new THREE.BoxGeometry(panelWidth, panelHeight, frameDepth * 0.7),
       new THREE.MeshStandardMaterial({
         color: frameColor,
         roughness: 0.45,
@@ -120,8 +180,8 @@ export const createOpeningObject = ({
     )
     panel.castShadow = true
     panel.receiveShadow = true
-    panel.position.y = doorHeight / 2
-    group.add(panel)
+    panel.position.set(0, panelHeight / 2, 0.028)
+    wallMount.add(panel)
 
     const knob = new THREE.Mesh(
       new THREE.SphereGeometry(0.03, 12, 12),
@@ -131,48 +191,63 @@ export const createOpeningObject = ({
         metalness: 0.45,
       }),
     )
-    const knobOffset = 0.06
-    const knobInset = 0.012
-    knob.position.set(
-      isHorizontalWall
-        ? width / 2 - knobOffset
-        : insideSign * Math.max(0.01, width / 2 - knobInset),
-      doorHeight * 0.45,
-      isHorizontalWall
-        ? insideSign * Math.max(0.01, depth / 2 - knobInset)
-        : depth / 2 - knobOffset,
-    )
-    group.add(knob)
+    knob.position.set(panelWidth / 2 - 0.08, doorHeight * 0.45, 0.06)
+    wallMount.add(knob)
     return group
   }
 
   const windowHeight = clamp(item.height || 1.2, 0.65, Math.max(0.85, room.height - 0.5))
-  const frameDepth = Math.max(0.08, Math.min(width, depth) * 0.8)
+  const frameThickness = Math.min(0.08, Math.max(0.04, openingSpan * 0.05))
+  const frameDepth = Math.max(0.028, wallThickness * 0.3)
   const sillHeight = clamp(room.height * 0.34, 0.72, 1.2)
   const centerY = clamp(
     sillHeight + windowHeight / 2,
     windowHeight / 2 + 0.2,
     room.height - windowHeight / 2 - 0.15,
   )
+  const revealPanel = new THREE.Mesh(
+    new THREE.PlaneGeometry(openingSpan, windowHeight),
+    new THREE.MeshStandardMaterial({
+      color: revealColor,
+      roughness: 0.92,
+      side: THREE.DoubleSide,
+    }),
+  )
+  revealPanel.position.set(0, centerY, 0.004)
+  wallMount.add(revealPanel)
 
-  const frameGeometry = isHorizontalWall
-    ? new THREE.BoxGeometry(width, windowHeight, frameDepth)
-    : new THREE.BoxGeometry(frameDepth, windowHeight, depth)
-  const frame = new THREE.Mesh(
-    frameGeometry,
+  const leftFrame = new THREE.Mesh(
+    new THREE.BoxGeometry(frameThickness, windowHeight, frameDepth),
     new THREE.MeshStandardMaterial({
       color: accentColor,
       roughness: 0.55,
       metalness: 0.08,
     }),
   )
-  frame.castShadow = true
-  frame.receiveShadow = true
-  frame.position.y = centerY
-  group.add(frame)
+  leftFrame.position.set(-openingSpan / 2 + frameThickness / 2, centerY, 0.016)
+  wallMount.add(leftFrame)
 
-  const paneWidth = Math.max(0.12, (isHorizontalWall ? width : depth) - 0.12)
-  const paneHeight = Math.max(0.2, windowHeight - 0.12)
+  const rightFrame = leftFrame.clone()
+  rightFrame.position.x *= -1
+  wallMount.add(rightFrame)
+
+  const topFrame = new THREE.Mesh(
+    new THREE.BoxGeometry(openingSpan, frameThickness, frameDepth),
+    new THREE.MeshStandardMaterial({
+      color: accentColor,
+      roughness: 0.55,
+      metalness: 0.08,
+    }),
+  )
+  topFrame.position.set(0, centerY + windowHeight / 2 - frameThickness / 2, 0.016)
+  wallMount.add(topFrame)
+
+  const bottomFrame = topFrame.clone()
+  bottomFrame.position.y = centerY - windowHeight / 2 + frameThickness / 2
+  wallMount.add(bottomFrame)
+
+  const paneWidth = Math.max(0.12, openingSpan - frameThickness * 2.2)
+  const paneHeight = Math.max(0.2, windowHeight - frameThickness * 2.2)
   const paneMaterial = new THREE.MeshStandardMaterial({
     color: 0xffffff,
     map: outsideTexture || null,
@@ -180,38 +255,22 @@ export const createOpeningObject = ({
     opacity: outsideTexture ? 0.96 : 0.72,
     roughness: 0.08,
     metalness: 0,
-    side: THREE.FrontSide,
+    side: THREE.DoubleSide,
   })
   const pane = new THREE.Mesh(new THREE.PlaneGeometry(paneWidth, paneHeight), paneMaterial)
   pane.position.y = centerY
-  const paneOffset = frameDepth / 2 + 0.001
-  const insideRotationY =
-    openingWall === 'top'
-      ? 0
-      : openingWall === 'bottom'
-        ? Math.PI
-        : openingWall === 'left'
-          ? Math.PI / 2
-          : -Math.PI / 2
-  pane.rotation.y = insideRotationY
-  if (isHorizontalWall) {
-    pane.position.z = insideSign * paneOffset
-  } else {
-    pane.position.x = insideSign * paneOffset
-  }
-  group.add(pane)
+  pane.position.z = 0.01
+  wallMount.add(pane)
 
   const mullion = new THREE.Mesh(
-    isHorizontalWall
-      ? new THREE.BoxGeometry(0.03, paneHeight, frameDepth * 0.96)
-      : new THREE.BoxGeometry(frameDepth * 0.96, paneHeight, 0.03),
+    new THREE.BoxGeometry(frameThickness * 0.7, paneHeight, frameDepth * 0.92),
     new THREE.MeshStandardMaterial({
       color: accentColor,
       roughness: 0.5,
       metalness: 0.08,
     }),
   )
-  mullion.position.y = centerY
-  group.add(mullion)
+  mullion.position.set(0, centerY, 0.016)
+  wallMount.add(mullion)
   return group
 }
