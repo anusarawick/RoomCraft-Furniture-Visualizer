@@ -1,19 +1,34 @@
 ﻿import { useEffect, useMemo, useRef, useState } from 'react'
+import { createRoot } from 'react-dom/client'
 import Layout2D from '../../member 2/Layout2D'
 import Plan2D from '../../member 2/Plan2D'
 import ThreeViewport from '../../member 3/ThreeViewport'
 import { clamp } from '../../member 2/clamp'
 import { shadeColor } from '../../member 3/color'
+import {
+  createSplitExportCanvas,
+  downloadCanvasAsPdf,
+  downloadCanvasAsPng,
+} from '../../utils/canvasExport'
 import { cloneDesign } from '../../utils/clone'
 import { createId } from '../../utils/ids'
 import { isPlacementConflicting } from '../../utils/collision'
+import { clampItemWithinRoom, normalizeRotation } from '../../utils/rotationBounds'
 import { useNotifications } from '../../member 4/NotificationProvider'
-import FurnitureIcon from '../../member 2/FurnitureIcon'
+import ColorSwatchField from '../ColorSwatchField'
+import FurnitureThumbnail from '../FurnitureThumbnail'
+import {
+  ACCENT_COLOR_PRESETS,
+  FLOOR_COLOR_PRESETS,
+  ITEM_COLOR_PRESETS,
+  WALL_COLOR_PRESETS,
+} from '../../member 1/constants'
 import {
   isOpeningItem,
   isOpeningElementType,
   snapOpeningToRoomWall,
 } from '../../utils/openingPlacement'
+import { getRoomPolygonPoints, getRoomWallSegments } from '../../utils/roomShape'
 
 const ICONS = {
   select: (
@@ -36,16 +51,14 @@ const ICONS = {
     </svg>
   ),
   rotateLeft: (
-    <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.6">
-      <path d="M7 7H3v4" />
-      <path d="M3 11a9 9 0 1 0 3-6.7" />
-    </svg>
+    <span className="tool-rotate-icon" aria-hidden="true">
+      <img src="/assets/rotate-left.png" alt="" />
+    </span>
   ),
   rotateRight: (
-    <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.6">
-      <path d="M17 7h4v4" />
-      <path d="M21 11a9 9 0 1 1-3-6.7" />
-    </svg>
+    <span className="tool-rotate-icon" aria-hidden="true">
+      <img src="/assets/rotate-right.png" alt="" />
+    </span>
   ),
   undo: (
     <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.6">
@@ -68,11 +81,11 @@ const ICONS = {
   ),
 }
 
-const SNAP_STEP = 0.1
 const ADD_PLACEMENT_STEP = 0.1
 const EXPORT_SCALE = 120
 const EXPORT_PADDING = 56
 const CATALOG_ITEM_MIME = 'application/x-roomcraft-catalog-item'
+const PASTE_OFFSET = 0.3
 
 const sanitizeFileName = (name) =>
   (name || 'roomcraft-plan')
@@ -125,6 +138,17 @@ const resolveDroppedCatalogId = (dataTransfer) => {
   )
 }
 
+const isTypingTarget = (target) => {
+  if (!target || !(target instanceof HTMLElement)) return false
+  const tagName = target.tagName
+  return (
+    target.isContentEditable ||
+    tagName === 'INPUT' ||
+    tagName === 'TEXTAREA' ||
+    tagName === 'SELECT'
+  )
+}
+
 const findAvailablePosition = ({
   baseItem,
   room,
@@ -143,7 +167,7 @@ const findAvailablePosition = ({
         y,
       },
       existingItems,
-      { defaultRoomId },
+      { defaultRoomId, room },
     )
 
   const normalizePosition = (position) => {
@@ -223,6 +247,24 @@ const findAvailableOpeningPlacement = ({
   const yAxis = buildPlacementAxis(room.depth, step)
 
   const centerCandidates = [{ x: preferred.x, y: preferred.y }]
+  getRoomWallSegments(room).forEach((segment) => {
+    if (segment.axis === 'horizontal') {
+      const minX = Math.min(segment.x1, segment.x2)
+      const maxX = Math.max(segment.x1, segment.x2)
+      buildPlacementAxis(maxX - minX, step).forEach((offset) => {
+        centerCandidates.push({ x: minX + offset, y: segment.y1 })
+      })
+      centerCandidates.push({ x: (segment.x1 + segment.x2) / 2, y: segment.y1 })
+      return
+    }
+
+    const minY = Math.min(segment.y1, segment.y2)
+    const maxY = Math.max(segment.y1, segment.y2)
+    buildPlacementAxis(maxY - minY, step).forEach((offset) => {
+      centerCandidates.push({ x: segment.x1, y: minY + offset })
+    })
+    centerCandidates.push({ x: segment.x1, y: (segment.y1 + segment.y2) / 2 })
+  })
   xAxis.forEach((x) => {
     centerCandidates.push({ x, y: 0 })
     centerCandidates.push({ x, y: room.depth })
@@ -262,6 +304,7 @@ const findAvailableOpeningPlacement = ({
     if (
       !isPlacementConflicting(candidate, existingItems, {
         defaultRoomId,
+        room,
       })
     ) {
       return candidate
@@ -289,11 +332,16 @@ export default function Editor({
   const [future, setFuture] = useState([])
   const [panelEditActive, setPanelEditActive] = useState(false)
   const [activeTool, setActiveTool] = useState('select')
-  const [snapToGrid, setSnapToGrid] = useState(true)
   const [activeRoomId, setActiveRoomId] = useState(
     () => design?.rooms?.[0]?.id || design?.room?.id || null,
   )
+  const [catalogPointerDrag, setCatalogPointerDrag] = useState(null)
+  const copiedItemRef = useRef(null)
   const statusTimer = useRef(null)
+  const [exportDialogOpen, setExportDialogOpen] = useState(false)
+  const [exportView, setExportView] = useState('2d')
+  const [exportFormat, setExportFormat] = useState('png')
+  const [exporting, setExporting] = useState(false)
   const { notify } = useNotifications()
   const canEdit = !readOnly
   const rooms = useMemo(() => {
@@ -319,6 +367,9 @@ export default function Editor({
     setFuture([])
     setViewMode(initialViewMode)
     setPanelEditActive(false)
+    setExportDialogOpen(false)
+    setExporting(false)
+    setCatalogPointerDrag(null)
   }, [design?.id, initialViewMode])
 
   useEffect(() => {
@@ -345,6 +396,69 @@ export default function Editor({
     }
   }, [activeRoomId, design?.items, selectedId])
 
+  useEffect(() => {
+    if (!catalogPointerDrag) return
+
+    const movementThreshold = 6
+
+    const handlePointerMove = (event) => {
+      setCatalogPointerDrag((current) => {
+        if (!current) return null
+        if (
+          Number.isFinite(current.pointerId) &&
+          Number.isFinite(event.pointerId) &&
+          current.pointerId !== event.pointerId
+        ) {
+          return current
+        }
+        const dx = event.clientX - current.startX
+        const dy = event.clientY - current.startY
+        const dragging =
+          current.dragging ||
+          dx * dx + dy * dy >= movementThreshold * movementThreshold
+        if (
+          current.currentX === event.clientX &&
+          current.currentY === event.clientY &&
+          current.dragging === dragging
+        ) {
+          return current
+        }
+        return {
+          ...current,
+          currentX: event.clientX,
+          currentY: event.clientY,
+          dragging,
+        }
+      })
+    }
+
+    const clearPointerDrag = (event) => {
+      window.setTimeout(() => {
+        setCatalogPointerDrag((current) => {
+          if (!current) return null
+          if (
+            Number.isFinite(current.pointerId) &&
+            Number.isFinite(event.pointerId) &&
+            current.pointerId !== event.pointerId
+          ) {
+            return current
+          }
+          return null
+        })
+      }, 0)
+    }
+
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', clearPointerDrag)
+    window.addEventListener('pointercancel', clearPointerDrag)
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', clearPointerDrag)
+      window.removeEventListener('pointercancel', clearPointerDrag)
+    }
+  }, [catalogPointerDrag])
+
   if (!design) {
     return (
       <div className="empty-state">
@@ -365,11 +479,28 @@ export default function Editor({
     : []
   const selectedItem = activeRoomItems.find((item) => item.id === selectedId)
   const selectedIsOpening = isOpeningItem(selectedItem)
+  const accentOverrideEnabled = design.accentOverrideEnabled === true
+  const catalogColorMap = useMemo(
+    () => new Map(catalog.map((item) => [item.id, item.color])),
+    [catalog],
+  )
 
   const getRoomItems = (roomId) =>
     design.items.filter(
       (item) => item.roomId === roomId || (!item.roomId && rooms.length === 1),
     )
+
+  const getOriginalItemColor = (item) => catalogColorMap.get(item.type) || item.color
+
+  const buildAccentDesign = (nextColor, enableAccent) => ({
+    ...design,
+    accentColor: nextColor ?? design.accentColor,
+    accentOverrideEnabled: enableAccent,
+    items: design.items.map((item) => ({
+      ...item,
+      color: enableAccent ? nextColor : getOriginalItemColor(item),
+    })),
+  })
 
   const showStatus = (message, type = 'info') => {
     window.clearTimeout(statusTimer.current)
@@ -408,6 +539,17 @@ export default function Editor({
       setPanelEditActive(false)
       if (message) showStatus(message, 'success')
     }
+  }
+
+  const applyInstantPanelChange = (applyChange, message) => {
+    if (!canEdit) return
+    if (panelEditActive) {
+      setPanelEditActive(false)
+    } else {
+      pushHistory(cloneDesign(design))
+    }
+    applyChange()
+    if (message) showStatus(message, 'success')
   }
 
   const handleUndo = () => {
@@ -450,7 +592,7 @@ export default function Editor({
       width: clamp(item.width, 0.2, targetRoom.width),
       depth: clamp(item.depth, 0.2, targetRoom.depth),
       height: item.height,
-      color: item.color,
+      color: accentOverrideEnabled ? design.accentColor : item.color,
       shade: isOpening ? 0.02 : 0.1,
       rotation: 0,
       x: 0,
@@ -523,6 +665,19 @@ export default function Editor({
     }
   }
 
+  const handleCatalogPointerStart = (event, catalogItemId) => {
+    if (!canEdit || event.button !== 0) return
+    setCatalogPointerDrag({
+      itemId: catalogItemId,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      currentX: event.clientX,
+      currentY: event.clientY,
+      dragging: false,
+    })
+  }
+
   const handleDropCatalogItem = (catalogItemId, placement = {}) => {
     if (!canEdit) return
     const catalogItem = catalog.find((entry) => entry.id === catalogItemId)
@@ -547,6 +702,10 @@ export default function Editor({
     handleDropCatalogItem(catalogItemId)
   }
 
+  const catalogPointerDragItemId =
+    canEdit && catalogPointerDrag?.dragging ? catalogPointerDrag.itemId : ''
+  const draggedCatalogItem = catalog.find((item) => item.id === catalogPointerDragItemId) || null
+
   const handleDeleteItem = () => {
     if (!canEdit || !selectedItem) return
     if (!window.confirm(`Remove ${selectedItem.label}?`)) return
@@ -557,12 +716,89 @@ export default function Editor({
     showStatus('Item removed', 'warning')
   }
 
+  const handleCopyItem = () => {
+    if (!canEdit || !selectedItem) return
+    copiedItemRef.current = cloneDesign(selectedItem)
+    showStatus(`${selectedItem.label} copied`, 'info')
+  }
+
+  const handlePasteItem = () => {
+    if (!canEdit) return
+    const copiedItem = copiedItemRef.current
+    if (!copiedItem) return
+
+    const targetRoom =
+      rooms.find((room) => room.id === copiedItem.roomId) || activeRoom || rooms[0] || null
+    if (!targetRoom) return
+
+    const targetRoomItems = getRoomItems(targetRoom.id)
+    const newItem = {
+      ...cloneDesign(copiedItem),
+      id: createId(),
+      roomId: targetRoom.id,
+    }
+
+    if (isOpeningItem(newItem)) {
+      const preferredCenter = {
+        x: newItem.x + newItem.width / 2 + PASTE_OFFSET,
+        y: newItem.y + newItem.depth / 2 + PASTE_OFFSET,
+      }
+      const placement = findAvailableOpeningPlacement({
+        baseItem: newItem,
+        room: targetRoom,
+        existingItems: targetRoomItems,
+        defaultRoomId: targetRoom.id,
+        preferredCenter,
+      })
+      if (!placement) {
+        showStatus(`No wall space to paste ${newItem.label}.`, 'warning')
+        return
+      }
+      newItem.x = placement.x
+      newItem.y = placement.y
+      newItem.width = placement.width
+      newItem.depth = placement.depth
+      newItem.openingWall = placement.openingWall
+      newItem.rotation = 0
+    } else {
+      const availablePosition = findAvailablePosition({
+        baseItem: newItem,
+        room: targetRoom,
+        existingItems: targetRoomItems,
+        defaultRoomId: targetRoom.id,
+        preferredPosition: {
+          x: newItem.x + PASTE_OFFSET,
+          y: newItem.y + PASTE_OFFSET,
+        },
+      })
+      if (!availablePosition) {
+        showStatus(`No space to paste ${newItem.label}.`, 'warning')
+        return
+      }
+      newItem.x = availablePosition.x
+      newItem.y = availablePosition.y
+    }
+
+    pushHistory(cloneDesign(design))
+    commitDesign({
+      ...design,
+      items: [...design.items, newItem],
+    })
+    setSelectedId(newItem.id)
+    setActiveRoomId(targetRoom.id)
+    showStatus(`${newItem.label} pasted`, 'success')
+  }
+
   const handleRotate90 = (direction) => {
     if (!canEdit || !selectedItem) return
     pushHistory(cloneDesign(design))
-    const nextRotation = (selectedItem.rotation + 90 * direction + 360) % 360
+    const nextRotation = normalizeRotation(selectedItem.rotation + 90 * direction)
     const nextItems = design.items.map((item) =>
-      item.id === selectedItem.id ? { ...item, rotation: nextRotation } : item,
+      item.id === selectedItem.id
+        ? activeRoom && !isOpeningItem(item)
+          ? clampItemWithinRoom({ ...item, rotation: nextRotation }, activeRoom)
+          : { ...item, rotation: nextRotation }
+        : item,
     )
     commitDesign({ ...design, items: nextItems })
     showStatus('Rotated 90 degrees', 'success')
@@ -585,7 +821,8 @@ export default function Editor({
         const depth = clamp(item.depth, 0.2, nextRoom.depth)
         const x = clamp(item.x, 0, Math.max(0, nextRoom.width - width))
         const y = clamp(item.y, 0, Math.max(0, nextRoom.depth - depth))
-        return { ...item, width, depth, x, y }
+        const resizedItem = { ...item, width, depth, x, y }
+        return isOpeningItem(resizedItem) ? resizedItem : clampItemWithinRoom(resizedItem, nextRoom)
       })
     }
     const nextRooms = rooms.map((room) =>
@@ -617,20 +854,16 @@ export default function Editor({
           rotation: 0,
         }
       }
-      return updated
+      if (
+        activeRoom &&
+        !isOpeningItem(updated) &&
+        ['x', 'y', 'width', 'depth', 'rotation'].includes(field)
+      ) {
+        return clampItemWithinRoom(updated, activeRoom)
+      }
+      return field === 'rotation' ? { ...updated, rotation: normalizeRotation(value) } : updated
     })
     updateDesign({ ...design, items: nextItems })
-  }
-
-  const applyAccentToAll = () => {
-    if (!canEdit || !design.items.length) return
-    pushHistory(cloneDesign(design))
-    const nextItems = design.items.map((item) => ({
-      ...item,
-      color: design.accentColor,
-    }))
-    commitDesign({ ...design, items: nextItems })
-    showStatus('Accent applied to all items', 'success')
   }
 
   const applyShadeToAll = () => {
@@ -714,10 +947,61 @@ export default function Editor({
     return design.items.map((item) => map.get(item.id) || item)
   }
 
-  const handleExportPlan = () => {
-    if (!rooms.length) return
+  const openExportDialog = () => {
+    setExportView(isSplitView ? 'split' : viewMode === '2d' ? '2d' : '3d')
+    setExportFormat('png')
+    setExportDialogOpen(true)
+  }
+
+  useEffect(() => {
+    if (!canEdit) return
+
+    const handleKeyDown = (event) => {
+      if (exportDialogOpen || isTypingTarget(event.target)) return
+
+      const key = event.key.toLowerCase()
+      const hasShortcutModifier = event.ctrlKey || event.metaKey
+
+      if (event.key === 'Delete' && selectedItem) {
+        event.preventDefault()
+        handleDeleteItem()
+        return
+      }
+
+      if (!hasShortcutModifier) return
+
+      if (key === 'z' && !event.shiftKey) {
+        event.preventDefault()
+        handleUndo()
+        return
+      }
+
+      if (key === 'y' || (key === 'z' && event.shiftKey)) {
+        event.preventDefault()
+        handleRedo()
+        return
+      }
+
+      if (key === 'c' && selectedItem) {
+        event.preventDefault()
+        handleCopyItem()
+        return
+      }
+
+      if (key === 'v' && copiedItemRef.current) {
+        event.preventDefault()
+        handlePasteItem()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [canEdit, exportDialogOpen, selectedItem, design, activeRoom, rooms, history.length, future.length])
+
+  const build2DExportCanvas = () => {
+    if (!rooms.length) return null
     const bounds = getPlanBounds(rooms)
-    if (!Number.isFinite(bounds.minX) || !Number.isFinite(bounds.minY)) return
+    if (!Number.isFinite(bounds.minX) || !Number.isFinite(bounds.minY)) return null
 
     const widthMeters = Math.max(1, bounds.maxX - bounds.minX)
     const heightMeters = Math.max(1, bounds.maxY - bounds.minY)
@@ -725,7 +1009,7 @@ export default function Editor({
     canvas.width = Math.round(widthMeters * EXPORT_SCALE + EXPORT_PADDING * 2)
     canvas.height = Math.round(heightMeters * EXPORT_SCALE + EXPORT_PADDING * 2)
     const ctx = canvas.getContext('2d')
-    if (!ctx) return
+    if (!ctx) return null
 
     ctx.fillStyle = '#f6f1eb'
     ctx.fillRect(0, 0, canvas.width, canvas.height)
@@ -738,14 +1022,25 @@ export default function Editor({
       const roomY = Number.isFinite(room.y) ? room.y : 0
       const left = toPxX(roomX)
       const top = toPxY(roomY)
-      const roomWidth = room.width * EXPORT_SCALE
-      const roomDepth = room.depth * EXPORT_SCALE
+      const roomPolygon = getRoomPolygonPoints(room, roomX, roomY).map((point) => ({
+        x: toPxX(point.x),
+        y: toPxY(point.y),
+      }))
 
       ctx.fillStyle = room.floorColor || '#d8c0a8'
-      ctx.fillRect(left, top, roomWidth, roomDepth)
+      ctx.beginPath()
+      roomPolygon.forEach((point, index) => {
+        if (index === 0) {
+          ctx.moveTo(point.x, point.y)
+        } else {
+          ctx.lineTo(point.x, point.y)
+        }
+      })
+      ctx.closePath()
+      ctx.fill()
       ctx.strokeStyle = '#7d6652'
       ctx.lineWidth = 3
-      ctx.strokeRect(left, top, roomWidth, roomDepth)
+      ctx.stroke()
 
       ctx.fillStyle = '#4b3a2d'
       ctx.font = '600 13px Manrope, Segoe UI, sans-serif'
@@ -816,18 +1111,105 @@ export default function Editor({
       ctx.restore()
     })
 
-    const link = document.createElement('a')
-    link.href = canvas.toDataURL('image/png')
-    link.download = `${sanitizeFileName(design.name)}-plan.png`
-    link.click()
-    showStatus('2D plan exported as PNG', 'success')
+    return canvas
+  }
+
+  const renderThreeExportCanvas = async () => {
+    if (!activeRoom) return null
+    const host = document.createElement('div')
+    host.style.position = 'fixed'
+    host.style.left = '-10000px'
+    host.style.top = '0'
+    host.style.width = '1280px'
+    host.style.height = '800px'
+    document.body.appendChild(host)
+    const root = createRoot(host)
+
+    try {
+      const canvas = await new Promise((resolve) => {
+        const timeoutId = window.setTimeout(() => resolve(null), 6000)
+
+        root.render(
+          <ThreeViewport
+            room={activeRoom}
+            items={activeRoomItems}
+            catalog={catalog}
+            globalShade={design.globalShade}
+            selectedId={null}
+            activeTool="select"
+            readOnly
+            controlMode="orbit"
+            onRenderReady={(snapshot) => {
+              window.clearTimeout(timeoutId)
+              resolve(snapshot)
+            }}
+          />,
+        )
+      })
+
+      return canvas
+    } finally {
+      root.unmount()
+      host.remove()
+    }
+  }
+
+  const buildExportCanvas = async () => {
+    if (exportView === '2d') {
+      return build2DExportCanvas()
+    }
+
+    const threeCanvas = await renderThreeExportCanvas()
+
+    if (exportView === '3d') {
+      return threeCanvas
+    }
+
+    const layoutCanvas = build2DExportCanvas()
+    if (!layoutCanvas || !threeCanvas) return null
+    return createSplitExportCanvas({
+      leftCanvas: layoutCanvas,
+      rightCanvas: threeCanvas,
+      leftLabel: '2D View',
+      rightLabel: '3D View',
+    })
+  }
+
+  const handleExport = async () => {
+    if (exporting) return
+    setExporting(true)
+
+    try {
+      const canvas = await buildExportCanvas()
+      if (!canvas) {
+        showStatus('Unable to prepare export preview.', 'warning')
+        return
+      }
+
+      const exportName = `${sanitizeFileName(design.name)}-${exportView}`
+      if (exportFormat === 'pdf') {
+        downloadCanvasAsPdf(canvas, `${exportName}.pdf`)
+      } else {
+        downloadCanvasAsPng(canvas, `${exportName}.png`)
+      }
+
+      setExportDialogOpen(false)
+      showStatus(
+        `${exportView === 'split' ? 'Split view' : `${exportView.toUpperCase()} view`} exported as ${exportFormat.toUpperCase()}`,
+        'success',
+      )
+    } catch {
+      showStatus('Export failed. Try again.', 'warning')
+    } finally {
+      setExporting(false)
+    }
   }
 
   return (
     <div className="editor-shell">
       <div className="editor-toolbar">
         <div className="tool-group">
-          {['select', 'move', 'rotate'].map((tool) => (
+          {['select', 'rotate'].map((tool) => (
             <button
               key={tool}
               className={`tool-button ${activeTool === tool ? 'active' : ''}`}
@@ -931,17 +1313,8 @@ export default function Editor({
           <button className="btn btn-ghost" onClick={onExit}>
             Back
           </button>
-          <button className="btn btn-ghost" onClick={handleExportPlan}>
-            Export Plan PNG
-          </button>
-          <button
-            className={`btn btn-ghost ${snapToGrid ? 'active' : ''}`}
-            onClick={() => setSnapToGrid((prev) => !prev)}
-            type="button"
-            title="Snap furniture to 0.1m grid"
-            disabled={!canEdit}
-          >
-            Snap {snapToGrid ? 'On' : 'Off'}
+          <button className="btn btn-ghost" onClick={openExportDialog} type="button">
+            Export
           </button>
           <button
             className="btn btn-primary"
@@ -967,25 +1340,34 @@ export default function Editor({
           </p>
           <div className="furniture-list">
             {catalog.filter((item) => !item.hidden).map((item) => (
-              <button
+              <div
                 key={item.id}
-                className="furniture-item"
-                onClick={() => handleAddItem(item)}
-                onDragStart={(event) => handleCatalogDragStart(event, item.id)}
-                type="button"
-                draggable={canEdit}
-                disabled={!canEdit}
+                className={`furniture-item${!canEdit ? ' is-disabled' : ''}${
+                  catalogPointerDragItemId === item.id ? ' is-dragging' : ''
+                }`}
+                onClick={() => canEdit && handleAddItem(item)}
+                onPointerDown={(event) => handleCatalogPointerStart(event, item.id)}
+                onKeyDown={(event) => {
+                  if (!canEdit) return
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    handleAddItem(item)
+                  }
+                }}
+                role="button"
+                tabIndex={canEdit ? 0 : -1}
+                aria-disabled={!canEdit}
               >
-                <div className="furniture-icon">
-                  <FurnitureIcon name={item.icon} />
+                <div className="furniture-preview">
+                  <FurnitureThumbnail item={item} />
                 </div>
-                <div>
+                <div className="furniture-copy">
                   <strong>{item.name}</strong>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
-                    {item.width}m x {item.depth}m
+                  <div className="furniture-size">
+                    {item.width} x {item.depth}
                   </div>
                 </div>
-              </button>
+              </div>
             ))}
           </div>
         </aside>
@@ -1017,8 +1399,6 @@ export default function Editor({
                       selectedId={selectedId}
                       globalShade={design.globalShade}
                       activeTool={activeTool}
-                      snapToGrid={snapToGrid}
-                      snapStep={SNAP_STEP}
                       readOnly={readOnly}
                       onSelectRoom={setActiveRoomId}
                       onSelectItem={setSelectedId}
@@ -1027,6 +1407,7 @@ export default function Editor({
                       onCommitChange={(items) => {
                         updateDesign({ ...design, items }, 'Plan updated')
                       }}
+                      catalogPointerDragItemId={catalogPointerDragItemId}
                       onDropCatalogItem={handleDropCatalogItem}
                       onInvalidPlacement={(message, fallbackItems) => {
                         if (fallbackItems) {
@@ -1042,8 +1423,6 @@ export default function Editor({
                       selectedId={selectedId}
                       globalShade={design.globalShade}
                       activeTool={activeTool}
-                      snapToGrid={snapToGrid}
-                      snapStep={SNAP_STEP}
                       readOnly={readOnly}
                       onSelect={setSelectedId}
                       onStartAction={() => pushHistory(cloneDesign(design))}
@@ -1056,6 +1435,7 @@ export default function Editor({
                           'Layout updated',
                         )
                       }}
+                      catalogPointerDragItemId={catalogPointerDragItemId}
                       onDropCatalogItem={handleDropCatalogItem}
                       onInvalidPlacement={(message, fallbackItems) => {
                         if (fallbackItems) {
@@ -1079,9 +1459,9 @@ export default function Editor({
                       globalShade={design.globalShade}
                       selectedId={selectedId}
                       activeTool={activeTool}
-                      snapToGrid={snapToGrid}
-                      snapStep={SNAP_STEP}
                       readOnly={readOnly}
+                      catalogPointerDragItemId={catalogPointerDragItemId}
+                      onDropCatalogItem={handleDropCatalogItem}
                       onSelect={setSelectedId}
                       onStartAction={() => pushHistory(cloneDesign(design))}
                       onPreviewChange={(items) =>
@@ -1115,8 +1495,6 @@ export default function Editor({
                   selectedId={selectedId}
                   globalShade={design.globalShade}
                   activeTool={activeTool}
-                  snapToGrid={snapToGrid}
-                  snapStep={SNAP_STEP}
                   readOnly={readOnly}
                   onSelectRoom={setActiveRoomId}
                   onSelectItem={setSelectedId}
@@ -1125,6 +1503,7 @@ export default function Editor({
                   onCommitChange={(items) => {
                     updateDesign({ ...design, items }, 'Plan updated')
                   }}
+                  catalogPointerDragItemId={catalogPointerDragItemId}
                   onDropCatalogItem={handleDropCatalogItem}
                   onInvalidPlacement={(message, fallbackItems) => {
                     if (fallbackItems) {
@@ -1140,8 +1519,6 @@ export default function Editor({
                   selectedId={selectedId}
                   globalShade={design.globalShade}
                   activeTool={activeTool}
-                  snapToGrid={snapToGrid}
-                  snapStep={SNAP_STEP}
                   readOnly={readOnly}
                   onSelect={setSelectedId}
                   onStartAction={() => pushHistory(cloneDesign(design))}
@@ -1154,6 +1531,7 @@ export default function Editor({
                       'Layout updated',
                     )
                   }}
+                  catalogPointerDragItemId={catalogPointerDragItemId}
                   onDropCatalogItem={handleDropCatalogItem}
                   onInvalidPlacement={(message, fallbackItems) => {
                     if (fallbackItems) {
@@ -1175,10 +1553,10 @@ export default function Editor({
                   globalShade={design.globalShade}
                   selectedId={selectedId}
                   activeTool={activeTool}
-                  snapToGrid={snapToGrid}
-                  snapStep={SNAP_STEP}
                   readOnly={readOnly}
                   controlMode="inside"
+                  catalogPointerDragItemId={catalogPointerDragItemId}
+                  onDropCatalogItem={handleDropCatalogItem}
                   onSelect={setSelectedId}
                   onStartAction={() => pushHistory(cloneDesign(design))}
                   onPreviewChange={(items) =>
@@ -1210,9 +1588,9 @@ export default function Editor({
                   globalShade={design.globalShade}
                   selectedId={selectedId}
                   activeTool={activeTool}
-                  snapToGrid={snapToGrid}
-                  snapStep={SNAP_STEP}
                   readOnly={readOnly}
+                  catalogPointerDragItemId={catalogPointerDragItemId}
+                  onDropCatalogItem={handleDropCatalogItem}
                   onSelect={setSelectedId}
                   onStartAction={() => pushHistory(cloneDesign(design))}
                   onPreviewChange={(items) =>
@@ -1301,53 +1679,21 @@ export default function Editor({
                       disabled={!canEdit}
                     />
                   </label>
-                  {!selectedIsOpening && (
-                    <>
-                      <label className="field">
-                        Rotation (deg)
-                        <input
-                          type="number"
-                          step="5"
-                          value={Math.round(selectedItem.rotation)}
-                          onFocus={beginPanelEdit}
-                          onChange={(event) =>
-                            handleItemChange('rotation', Number(event.target.value))
-                          }
-                          onBlur={() => endPanelEdit('Rotation updated')}
-                          disabled={!canEdit}
-                        />
-                      </label>
-                      <div className="inline-actions">
-                        <button
-                          className="btn btn-ghost"
-                          type="button"
-                          onClick={() => handleRotate90(-1)}
-                          disabled={!canEdit}
-                        >
-                          Rotate -90
-                        </button>
-                        <button
-                          className="btn btn-ghost"
-                          type="button"
-                          onClick={() => handleRotate90(1)}
-                          disabled={!canEdit}
-                        >
-                          Rotate +90
-                        </button>
-                      </div>
-                    </>
-                  )}
-                  <label className="field">
-                    Colour
-                    <input
-                      type="color"
-                      value={selectedItem.color}
-                      onFocus={beginPanelEdit}
-                      onChange={(event) => handleItemChange('color', event.target.value)}
-                      onBlur={() => endPanelEdit('Colour updated')}
-                      disabled={!canEdit}
-                    />
-                  </label>
+                  <ColorSwatchField
+                    label="Colour"
+                    value={selectedItem.color}
+                    presets={ITEM_COLOR_PRESETS}
+                    onChange={(nextColor) => handleItemChange('color', nextColor)}
+                    onPresetSelect={(nextColor) =>
+                      applyInstantPanelChange(
+                        () => handleItemChange('color', nextColor),
+                        'Colour updated',
+                      )
+                    }
+                    onCustomFocus={beginPanelEdit}
+                    onCustomBlur={() => endPanelEdit('Colour updated')}
+                    disabled={!canEdit}
+                  />
                   <label className="field">
                     Shade
                     <input
@@ -1508,58 +1854,64 @@ export default function Editor({
 
                 <div className="properties-section">
                   <div className="color-row">
-                    <label className="field">
-                      Wall Color
-                      <div className="color-input">
-                        <input
-                          type="color"
-                          value={activeRoom?.wallColor || '#ffffff'}
-                          onFocus={beginPanelEdit}
-                          onChange={(event) => handleRoomChange('wallColor', event.target.value)}
-                          onBlur={() => endPanelEdit('Wall color updated')}
-                          disabled={!canEdit}
-                        />
-                        <input type="text" value={activeRoom?.wallColor || ''} readOnly />
-                      </div>
-                    </label>
-                    <label className="field">
-                      Floor Color
-                      <div className="color-input">
-                        <input
-                          type="color"
-                          value={activeRoom?.floorColor || '#ffffff'}
-                          onFocus={beginPanelEdit}
-                          onChange={(event) => handleRoomChange('floorColor', event.target.value)}
-                          onBlur={() => endPanelEdit('Floor color updated')}
-                          disabled={!canEdit}
-                        />
-                        <input type="text" value={activeRoom?.floorColor || ''} readOnly />
-                      </div>
-                    </label>
+                    <ColorSwatchField
+                      label="Wall Color"
+                      value={activeRoom?.wallColor || '#FFFFFF'}
+                      presets={WALL_COLOR_PRESETS}
+                      onChange={(nextColor) => handleRoomChange('wallColor', nextColor)}
+                      onPresetSelect={(nextColor) =>
+                        applyInstantPanelChange(
+                          () => handleRoomChange('wallColor', nextColor),
+                          'Wall color updated',
+                        )
+                      }
+                      onCustomFocus={beginPanelEdit}
+                      onCustomBlur={() => endPanelEdit('Wall color updated')}
+                      disabled={!canEdit}
+                    />
+                    <ColorSwatchField
+                      label="Floor Color"
+                      value={activeRoom?.floorColor || '#FFFFFF'}
+                      presets={FLOOR_COLOR_PRESETS}
+                      onChange={(nextColor) => handleRoomChange('floorColor', nextColor)}
+                      onPresetSelect={(nextColor) =>
+                        applyInstantPanelChange(
+                          () => handleRoomChange('floorColor', nextColor),
+                          'Floor color updated',
+                        )
+                      }
+                      onCustomFocus={beginPanelEdit}
+                      onCustomBlur={() => endPanelEdit('Floor color updated')}
+                      disabled={!canEdit}
+                    />
                   </div>
                 </div>
 
                 <details className="properties-section" open={!readOnly}>
                   <summary>Design Styling</summary>
-                  <label className="field">
-                    Accent Colour
-                    <div className="color-input">
-                      <input
-                        type="color"
-                        value={design.accentColor}
-                        onFocus={beginPanelEdit}
-                        onChange={(event) =>
-                          updateDesign({ ...design, accentColor: event.target.value })
-                        }
-                        onBlur={() => endPanelEdit('Accent colour updated')}
-                        disabled={!canEdit}
-                      />
-                      <input type="text" value={design.accentColor} readOnly />
-                    </div>
-                  </label>
-                  <button className="btn btn-ghost" onClick={applyAccentToAll} disabled={!canEdit}>
-                    Apply to all items
-                  </button>
+                  <ColorSwatchField
+                    label="Accent Colour"
+                    value={design.accentColor}
+                    presets={ACCENT_COLOR_PRESETS}
+                    showNoneOption
+                    noneActive={!accentOverrideEnabled}
+                    onNoneSelect={() =>
+                      applyInstantPanelChange(
+                        () => updateDesign(buildAccentDesign(design.accentColor, false)),
+                        'Original colours restored',
+                      )
+                    }
+                    onChange={(nextColor) => updateDesign(buildAccentDesign(nextColor, true))}
+                    onPresetSelect={(nextColor) =>
+                      applyInstantPanelChange(
+                        () => updateDesign(buildAccentDesign(nextColor, true)),
+                        'Accent colour applied',
+                      )
+                    }
+                    onCustomFocus={beginPanelEdit}
+                    onCustomBlur={() => endPanelEdit('Accent colour applied')}
+                    disabled={!canEdit}
+                  />
                   <label className="field">
                     Global Shade
                     <input
@@ -1588,6 +1940,104 @@ export default function Editor({
           )}
         </aside>
       </div>
+      {draggedCatalogItem && catalogPointerDrag?.dragging && (
+        <div
+          className="catalog-drag-preview"
+          style={{
+            left: catalogPointerDrag.currentX + 18,
+            top: catalogPointerDrag.currentY + 18,
+          }}
+          aria-hidden="true"
+        >
+          <div className="catalog-drag-preview-thumb">
+            <FurnitureThumbnail item={draggedCatalogItem} />
+          </div>
+          <div className="catalog-drag-preview-copy">{draggedCatalogItem.name}</div>
+        </div>
+      )}
+      {exportDialogOpen && (
+        <div className="export-dialog-backdrop" onClick={() => !exporting && setExportDialogOpen(false)}>
+          <div
+            className="export-dialog card"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="export-dialog-title"
+          >
+            <div className="export-dialog-header">
+              <div>
+                <h3 id="export-dialog-title">Export Design</h3>
+                <p>Choose the view and file format to export.</p>
+              </div>
+              <button
+                className="btn btn-ghost"
+                type="button"
+                onClick={() => setExportDialogOpen(false)}
+                disabled={exporting}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="export-dialog-grid">
+              <div className="field">
+                <span>View</span>
+                <div className="export-choice-row">
+                  {[
+                    { value: '2d', label: '2D View' },
+                    { value: '3d', label: '3D View' },
+                    { value: 'split', label: 'Split Both' },
+                  ].map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className={`export-choice ${exportView === option.value ? 'active' : ''}`}
+                      onClick={() => setExportView(option.value)}
+                      disabled={exporting}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="field">
+                <span>Format</span>
+                <div className="export-choice-row">
+                  {[
+                    { value: 'png', label: 'PNG' },
+                    { value: 'pdf', label: 'PDF' },
+                  ].map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className={`export-choice ${exportFormat === option.value ? 'active' : ''}`}
+                      onClick={() => setExportFormat(option.value)}
+                      disabled={exporting}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="export-dialog-actions">
+              <button
+                className="btn btn-ghost"
+                type="button"
+                onClick={() => setExportDialogOpen(false)}
+                disabled={exporting}
+              >
+                Cancel
+              </button>
+              <button className="btn btn-primary" type="button" onClick={handleExport} disabled={exporting}>
+                {exporting ? 'Preparing export...' : 'Export'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

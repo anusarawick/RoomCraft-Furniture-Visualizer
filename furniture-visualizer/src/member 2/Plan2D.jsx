@@ -3,6 +3,8 @@ import { clamp } from './clamp'
 import { shadeColor } from '../member 3/color'
 import { isOpeningItem, snapOpeningToRoomWall } from '../utils/openingPlacement'
 import { getCollisionMap, hasItemCollision } from '../utils/collision'
+import { clampItemWithinRoom, normalizeRotation } from '../utils/rotationBounds'
+import { getRoomClipPath, isPointInsideRoom } from '../utils/roomShape'
 
 const PLAN_PADDING = 0.92
 
@@ -33,9 +35,8 @@ export default function Plan2D({
   selectedId,
   globalShade,
   activeTool,
-  snapToGrid = false,
-  snapStep = 0.1,
   readOnly,
+  catalogPointerDragItemId,
   onSelectRoom,
   onSelectItem,
   onStartAction,
@@ -46,6 +47,7 @@ export default function Plan2D({
 }) {
   const stageRef = useRef(null)
   const [size, setSize] = useState({ width: 0, height: 0 })
+  const [isCatalogDropActive, setIsCatalogDropActive] = useState(false)
   const dragRef = useRef(null)
   const latestItemsRef = useRef(items)
 
@@ -67,7 +69,7 @@ export default function Plan2D({
   }, [])
 
   const bounds = useMemo(() => getRoomBounds(rooms), [rooms])
-  const collisionMap = useMemo(() => getCollisionMap(items), [items])
+  const collisionMap = useMemo(() => getCollisionMap(items, { rooms }), [items, rooms])
   const totalWidth = Math.max(1, bounds.maxX - bounds.minX)
   const totalDepth = Math.max(1, bounds.maxY - bounds.minY)
   const scale =
@@ -85,6 +87,21 @@ export default function Plan2D({
     event.dataTransfer?.getData('text/plain') ||
     ''
 
+  const resolveCatalogDropFromPoint = (clientX, clientY) => {
+    if (!stageRef.current || !scale) return null
+    const rect = stageRef.current.getBoundingClientRect()
+    const pointer = { x: clientX - rect.left, y: clientY - rect.top }
+    if (
+      pointer.x < 0 ||
+      pointer.x > rect.width ||
+      pointer.y < 0 ||
+      pointer.y > rect.height
+    ) {
+      return null
+    }
+    return resolveRoomDropTarget(pointer)
+  }
+
   const resolveRoomDropTarget = (pointer) => {
     for (const room of rooms) {
       const roomX = Number.isFinite(room.x) ? room.x : 0
@@ -101,6 +118,9 @@ export default function Plan2D({
       ) {
         const centerX = clamp((pointer.x - left) / scale, 0, room.width)
         const centerY = clamp((pointer.y - top) / scale, 0, room.depth)
+        if (!isPointInsideRoom(room, centerX, centerY)) {
+          continue
+        }
         return { room, centerX, centerY }
       }
     }
@@ -174,17 +194,9 @@ export default function Plan2D({
             0,
             room.depth - drag.startItem.depth,
           )
-          const x = clamp(
-            snapToGrid ? Math.round(nextX / snapStep) * snapStep : nextX,
-            0,
-            room.width - drag.startItem.width,
-          )
-          const y = clamp(
-            snapToGrid ? Math.round(nextY / snapStep) * snapStep : nextY,
-            0,
-            room.depth - drag.startItem.depth,
-          )
-          return { ...item, x, y }
+          const x = clamp(nextX, 0, room.width - drag.startItem.width)
+          const y = clamp(nextY, 0, room.depth - drag.startItem.depth)
+          return clampItemWithinRoom({ ...item, x, y }, room)
         }
         if (drag.mode === 'resize') {
           const minSize = isOpeningItem(drag.startItem) ? 0.2 : 0.3
@@ -213,17 +225,9 @@ export default function Plan2D({
               rotation: 0,
             }
           }
-          const width = clamp(
-            snapToGrid ? Math.round(nextWidth / snapStep) * snapStep : nextWidth,
-            minSize,
-            room.width - drag.startItem.x,
-          )
-          const depth = clamp(
-            snapToGrid ? Math.round(nextDepth / snapStep) * snapStep : nextDepth,
-            minSize,
-            room.depth - drag.startItem.y,
-          )
-          return { ...item, width, depth }
+          const width = clamp(nextWidth, minSize, room.width - drag.startItem.x)
+          const depth = clamp(nextDepth, minSize, room.depth - drag.startItem.y)
+          return clampItemWithinRoom({ ...item, width, depth }, room)
         }
         if (drag.mode === 'rotate') {
           const centerX =
@@ -232,7 +236,7 @@ export default function Plan2D({
             offsetY + (room.y + drag.startItem.y + drag.startItem.depth / 2) * scale
           const angle = Math.atan2(pointer.y - centerY, pointer.x - centerX)
           const deg = ((angle * 180) / Math.PI + 90 + 360) % 360
-          return { ...item, rotation: deg }
+          return clampItemWithinRoom({ ...item, rotation: normalizeRotation(deg) }, room)
         }
         return item
       })
@@ -240,6 +244,7 @@ export default function Plan2D({
       dragRef.current.moved = true
       dragRef.current.hasConflict = hasItemCollision(drag.id, nextItems, {
         defaultRoomId: drag.room?.id || null,
+        room: drag.room || null,
       })
       dragRef.current.lastItems = nextItems
       onPreviewChange?.(nextItems)
@@ -274,13 +279,59 @@ export default function Plan2D({
     onPreviewChange,
     onCommitChange,
     onInvalidPlacement,
-    snapToGrid,
-    snapStep,
+  ])
+
+  useEffect(() => {
+    if (readOnly || !onDropCatalogItem || !catalogPointerDragItemId) {
+      setIsCatalogDropActive(false)
+      return
+    }
+
+    const handlePointerMove = (event) => {
+      setIsCatalogDropActive(
+        Boolean(resolveCatalogDropFromPoint(event.clientX, event.clientY)),
+      )
+    }
+
+    const handlePointerUp = (event) => {
+      const dropTarget = resolveCatalogDropFromPoint(event.clientX, event.clientY)
+      setIsCatalogDropActive(false)
+      if (!dropTarget?.room) return
+      onSelectRoom?.(dropTarget.room.id)
+      onDropCatalogItem(catalogPointerDragItemId, {
+        roomId: dropTarget.room.id,
+        centerX: dropTarget.centerX ?? dropTarget.room.width / 2,
+        centerY: dropTarget.centerY ?? dropTarget.room.depth / 2,
+      })
+    }
+
+    const handlePointerCancel = () => {
+      setIsCatalogDropActive(false)
+    }
+
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', handlePointerUp)
+    window.addEventListener('pointercancel', handlePointerCancel)
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', handlePointerUp)
+      window.removeEventListener('pointercancel', handlePointerCancel)
+    }
+  }, [
+    catalogPointerDragItemId,
+    onDropCatalogItem,
+    onSelectRoom,
+    readOnly,
+    rooms,
+    scale,
+    offsetX,
+    offsetY,
   ])
 
   return (
     <div
-      className="plan-stage"
+      className={`plan-stage${isCatalogDropActive ? ' is-catalog-drop-active' : ''}`}
       ref={stageRef}
       onPointerDown={() => onSelectItem?.(null)}
       onDragOver={(event) => {
@@ -299,9 +350,7 @@ export default function Plan2D({
         event.stopPropagation()
         const pointer = getPointer(event)
         const dropTarget = resolveRoomDropTarget(pointer)
-        const fallbackRoom =
-          rooms.find((room) => room.id === activeRoomId) || rooms[0] || null
-        const targetRoom = dropTarget?.room || fallbackRoom
+        const targetRoom = dropTarget?.room || null
         if (!targetRoom) return
         onSelectRoom?.(targetRoom.id)
         onDropCatalogItem(catalogItemId, {
@@ -333,6 +382,7 @@ export default function Plan2D({
                 left,
                 top,
                 backgroundColor: room.floorColor,
+                clipPath: getRoomClipPath(room),
               }}
               onPointerDown={(event) => {
                 event.stopPropagation()

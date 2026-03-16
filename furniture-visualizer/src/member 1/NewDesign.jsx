@@ -1,4 +1,7 @@
 import { useState } from 'react'
+import ColorSwatchField from '../components/ColorSwatchField'
+import { FLOOR_COLOR_PRESETS, ROOM_SHAPES, WALL_COLOR_PRESETS } from './constants'
+import { getRoomClipPath, isLShapedRoom } from '../utils/roomShape'
 
 export default function NewDesign({ onCreate }) {
   const [name, setName] = useState('Living')
@@ -51,7 +54,7 @@ export default function NewDesign({ onCreate }) {
           <div className="field">
             Room Shape
             <div className="tool-group">
-              {['Rectangle', 'L-shaped'].map((option) => (
+              {ROOM_SHAPES.map((option) => (
                 <label key={option} className="tool-group">
                   <input
                     type="radio"
@@ -103,10 +106,21 @@ export default function NewDesign({ onCreate }) {
 
         <div className="form-card card">
           <h3>Room Preview</h3>
-          <div className="preview-box">
-            {planType === 'multi'
-              ? `${roomCount} rooms`
-              : `${width}m x ${depth}m`}
+          <div
+            className={`preview-box ${planType === 'single' && isLShapedRoom({ shape }) ? 'is-l-shaped' : ''}`}
+            style={
+              planType === 'single'
+                ? {
+                    clipPath: getRoomClipPath({
+                      shape,
+                      width: Number(width) || 5,
+                      depth: Number(depth) || 4,
+                    }),
+                  }
+                : undefined
+            }
+          >
+            {planType === 'multi' ? `${roomCount} rooms` : `${width}m x ${depth}m`}
           </div>
         </div>
 
@@ -152,28 +166,18 @@ export default function NewDesign({ onCreate }) {
         <div className="form-card card">
           <h3>Colors</h3>
           <div className="form-row">
-            <label className="field">
-              Wall Color
-              <div className="color-input">
-                <input
-                  type="color"
-                  value={wallColor}
-                  onChange={(event) => setWallColor(event.target.value)}
-                />
-                <input type="text" value={wallColor} readOnly />
-              </div>
-            </label>
-            <label className="field">
-              Floor Color
-              <div className="color-input">
-                <input
-                  type="color"
-                  value={floorColor}
-                  onChange={(event) => setFloorColor(event.target.value)}
-                />
-                <input type="text" value={floorColor} readOnly />
-              </div>
-            </label>
+            <ColorSwatchField
+              label="Wall Color"
+              value={wallColor}
+              presets={WALL_COLOR_PRESETS}
+              onChange={setWallColor}
+            />
+            <ColorSwatchField
+              label="Floor Color"
+              value={floorColor}
+              presets={FLOOR_COLOR_PRESETS}
+              onChange={setFloorColor}
+            />
           </div>
         </div>
 

@@ -3,6 +3,8 @@ import { clamp } from './clamp'
 import { shadeColor } from '../member 3/color'
 import { isOpeningItem, snapOpeningToRoomWall } from '../utils/openingPlacement'
 import { getCollisionMap, hasItemCollision } from '../utils/collision'
+import { clampItemWithinRoom, normalizeRotation } from '../utils/rotationBounds'
+import { getRoomClipPath, isPointInsideRoom } from '../utils/roomShape'
 
 export default function Layout2D({
   room,
@@ -10,9 +12,8 @@ export default function Layout2D({
   selectedId,
   globalShade,
   activeTool,
-  snapToGrid = false,
-  snapStep = 0.1,
   readOnly,
+  catalogPointerDragItemId,
   onSelect,
   onStartAction,
   onPreviewChange,
@@ -22,6 +23,7 @@ export default function Layout2D({
 }) {
   const stageRef = useRef(null)
   const [size, setSize] = useState({ width: 0, height: 0 })
+  const [isCatalogDropActive, setIsCatalogDropActive] = useState(false)
   const dragRef = useRef(null)
   const latestItemsRef = useRef(items)
 
@@ -51,7 +53,7 @@ export default function Layout2D({
   const offsetY = (size.height - roomDepthPx) / 2
   const labelTop = Math.max(6, offsetY - 22)
   const labelSide = Math.max(6, offsetX - 22)
-  const collisionMap = getCollisionMap(items, { defaultRoomId: room?.id || null })
+  const collisionMap = getCollisionMap(items, { defaultRoomId: room?.id || null, room })
 
   const getPointer = (event) => {
     const rect = stageRef.current.getBoundingClientRect()
@@ -62,6 +64,24 @@ export default function Layout2D({
     event.dataTransfer?.getData('application/x-roomcraft-catalog-item') ||
     event.dataTransfer?.getData('text/plain') ||
     ''
+
+  const resolveCatalogDropFromPoint = (clientX, clientY) => {
+    if (!stageRef.current || !scale) return null
+    const rect = stageRef.current.getBoundingClientRect()
+    const pointer = { x: clientX - rect.left, y: clientY - rect.top }
+    if (
+      pointer.x < 0 ||
+      pointer.x > rect.width ||
+      pointer.y < 0 ||
+      pointer.y > rect.height
+    ) {
+      return null
+    }
+    const centerX = clamp((pointer.x - offsetX) / scale, 0, room.width)
+    const centerY = clamp((pointer.y - offsetY) / scale, 0, room.depth)
+    if (!isPointInsideRoom(room, centerX, centerY)) return null
+    return { centerX, centerY }
+  }
 
   const resolveMode = (mode) => {
     if (mode !== 'move') return mode
@@ -127,17 +147,9 @@ export default function Layout2D({
             0,
             room.depth - drag.startItem.depth,
           )
-          const x = clamp(
-            snapToGrid ? Math.round(nextX / snapStep) * snapStep : nextX,
-            0,
-            room.width - drag.startItem.width,
-          )
-          const y = clamp(
-            snapToGrid ? Math.round(nextY / snapStep) * snapStep : nextY,
-            0,
-            room.depth - drag.startItem.depth,
-          )
-          return { ...item, x, y }
+          const x = clamp(nextX, 0, room.width - drag.startItem.width)
+          const y = clamp(nextY, 0, room.depth - drag.startItem.depth)
+          return clampItemWithinRoom({ ...item, x, y }, room)
         }
         if (drag.mode === 'resize') {
           const minSize = isOpeningItem(drag.startItem) ? 0.2 : 0.3
@@ -166,17 +178,9 @@ export default function Layout2D({
               rotation: 0,
             }
           }
-          const width = clamp(
-            snapToGrid ? Math.round(nextWidth / snapStep) * snapStep : nextWidth,
-            minSize,
-            room.width - drag.startItem.x,
-          )
-          const depth = clamp(
-            snapToGrid ? Math.round(nextDepth / snapStep) * snapStep : nextDepth,
-            minSize,
-            room.depth - drag.startItem.y,
-          )
-          return { ...item, width, depth }
+          const width = clamp(nextWidth, minSize, room.width - drag.startItem.x)
+          const depth = clamp(nextDepth, minSize, room.depth - drag.startItem.y)
+          return clampItemWithinRoom({ ...item, width, depth }, room)
         }
         if (drag.mode === 'rotate') {
           const centerX =
@@ -185,7 +189,7 @@ export default function Layout2D({
             offsetY + (drag.startItem.y + drag.startItem.depth / 2) * scale
           const angle = Math.atan2(pointer.y - centerY, pointer.x - centerX)
           const deg = ((angle * 180) / Math.PI + 90 + 360) % 360
-          return { ...item, rotation: deg }
+          return clampItemWithinRoom({ ...item, rotation: normalizeRotation(deg) }, room)
         }
         return item
       })
@@ -193,6 +197,7 @@ export default function Layout2D({
       dragRef.current.moved = true
       dragRef.current.hasConflict = hasItemCollision(drag.id, nextItems, {
         defaultRoomId: room?.id || null,
+        room,
       })
       dragRef.current.lastItems = nextItems
       onPreviewChange?.(nextItems)
@@ -228,13 +233,57 @@ export default function Layout2D({
     onPreviewChange,
     onCommitChange,
     onInvalidPlacement,
-    snapToGrid,
-    snapStep,
+  ])
+
+  useEffect(() => {
+    if (readOnly || !onDropCatalogItem || !catalogPointerDragItemId) {
+      setIsCatalogDropActive(false)
+      return
+    }
+
+    const handlePointerMove = (event) => {
+      setIsCatalogDropActive(
+        Boolean(resolveCatalogDropFromPoint(event.clientX, event.clientY)),
+      )
+    }
+
+    const handlePointerUp = (event) => {
+      const placement = resolveCatalogDropFromPoint(event.clientX, event.clientY)
+      setIsCatalogDropActive(false)
+      if (!placement) return
+      onDropCatalogItem(catalogPointerDragItemId, {
+        roomId: room.id,
+        centerX: placement.centerX,
+        centerY: placement.centerY,
+      })
+    }
+
+    const handlePointerCancel = () => {
+      setIsCatalogDropActive(false)
+    }
+
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', handlePointerUp)
+    window.addEventListener('pointercancel', handlePointerCancel)
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', handlePointerUp)
+      window.removeEventListener('pointercancel', handlePointerCancel)
+    }
+  }, [
+    catalogPointerDragItemId,
+    onDropCatalogItem,
+    readOnly,
+    room,
+    scale,
+    offsetX,
+    offsetY,
   ])
 
   return (
     <div
-      className="layout-stage"
+      className={`layout-stage${isCatalogDropActive ? ' is-catalog-drop-active' : ''}`}
       ref={stageRef}
       onPointerDown={() => onSelect?.(null)}
       onDragOver={(event) => {
@@ -254,6 +303,7 @@ export default function Layout2D({
         const pointer = getPointer(event)
         const centerX = clamp((pointer.x - offsetX) / scale, 0, room.width)
         const centerY = clamp((pointer.y - offsetY) / scale, 0, room.depth)
+        if (!isPointInsideRoom(room, centerX, centerY)) return
         onDropCatalogItem(catalogItemId, { roomId: room.id, centerX, centerY })
       }}
     >
@@ -265,6 +315,7 @@ export default function Layout2D({
           left: offsetX,
           top: offsetY,
           backgroundColor: room.floorColor,
+          clipPath: getRoomClipPath(room),
         }}
       >
         {items.map((item) => {

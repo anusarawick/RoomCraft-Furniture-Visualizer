@@ -38,6 +38,7 @@ export const createNewDesign = ({
     rooms: nextRooms,
     items: [],
     accentColor: '#C97C5D',
+    accentOverrideEnabled: false,
     globalShade: 0,
     createdAt: now,
     updatedAt: now,
