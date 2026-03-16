@@ -13,9 +13,10 @@ import {
 import { cloneDesign } from '../../utils/clone'
 import { createId } from '../../utils/ids'
 import { isPlacementConflicting } from '../../utils/collision'
+import { clampItemWithinRoom, normalizeRotation } from '../../utils/rotationBounds'
 import { useNotifications } from '../../member 4/NotificationProvider'
-import FurnitureIcon from '../../member 2/FurnitureIcon'
 import ColorSwatchField from '../ColorSwatchField'
+import FurnitureThumbnail from '../FurnitureThumbnail'
 import {
   ACCENT_COLOR_PRESETS,
   FLOOR_COLOR_PRESETS,
@@ -49,16 +50,14 @@ const ICONS = {
     </svg>
   ),
   rotateLeft: (
-    <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.6">
-      <path d="M7 7H3v4" />
-      <path d="M3 11a9 9 0 1 0 3-6.7" />
-    </svg>
+    <span className="tool-rotate-icon" aria-hidden="true">
+      <img src="/assets/rotate-left.png" alt="" />
+    </span>
   ),
   rotateRight: (
-    <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.6">
-      <path d="M17 7h4v4" />
-      <path d="M21 11a9 9 0 1 1-3-6.7" />
-    </svg>
+    <span className="tool-rotate-icon" aria-hidden="true">
+      <img src="/assets/rotate-right.png" alt="" />
+    </span>
   ),
   undo: (
     <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.6">
@@ -589,9 +588,13 @@ export default function Editor({
   const handleRotate90 = (direction) => {
     if (!canEdit || !selectedItem) return
     pushHistory(cloneDesign(design))
-    const nextRotation = (selectedItem.rotation + 90 * direction + 360) % 360
+    const nextRotation = normalizeRotation(selectedItem.rotation + 90 * direction)
     const nextItems = design.items.map((item) =>
-      item.id === selectedItem.id ? { ...item, rotation: nextRotation } : item,
+      item.id === selectedItem.id
+        ? activeRoom && !isOpeningItem(item)
+          ? clampItemWithinRoom({ ...item, rotation: nextRotation }, activeRoom)
+          : { ...item, rotation: nextRotation }
+        : item,
     )
     commitDesign({ ...design, items: nextItems })
     showStatus('Rotated 90 degrees', 'success')
@@ -614,7 +617,8 @@ export default function Editor({
         const depth = clamp(item.depth, 0.2, nextRoom.depth)
         const x = clamp(item.x, 0, Math.max(0, nextRoom.width - width))
         const y = clamp(item.y, 0, Math.max(0, nextRoom.depth - depth))
-        return { ...item, width, depth, x, y }
+        const resizedItem = { ...item, width, depth, x, y }
+        return isOpeningItem(resizedItem) ? resizedItem : clampItemWithinRoom(resizedItem, nextRoom)
       })
     }
     const nextRooms = rooms.map((room) =>
@@ -646,7 +650,14 @@ export default function Editor({
           rotation: 0,
         }
       }
-      return updated
+      if (
+        activeRoom &&
+        !isOpeningItem(updated) &&
+        ['x', 'y', 'width', 'depth', 'rotation'].includes(field)
+      ) {
+        return clampItemWithinRoom(updated, activeRoom)
+      }
+      return field === 'rotation' ? { ...updated, rotation: normalizeRotation(value) } : updated
     })
     updateDesign({ ...design, items: nextItems })
   }
@@ -949,7 +960,7 @@ export default function Editor({
     <div className="editor-shell">
       <div className="editor-toolbar">
         <div className="tool-group">
-          {['select', 'move', 'rotate'].map((tool) => (
+          {['select', 'rotate'].map((tool) => (
             <button
               key={tool}
               className={`tool-button ${activeTool === tool ? 'active' : ''}`}
@@ -1089,13 +1100,13 @@ export default function Editor({
                 draggable={canEdit}
                 disabled={!canEdit}
               >
-                <div className="furniture-icon">
-                  <FurnitureIcon name={item.icon} />
+                <div className="furniture-preview">
+                  <FurnitureThumbnail item={item} />
                 </div>
-                <div>
+                <div className="furniture-copy">
                   <strong>{item.name}</strong>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
-                    {item.width}m x {item.depth}m
+                  <div className="furniture-size">
+                    {item.width} x {item.depth}
                   </div>
                 </div>
               </button>
@@ -1400,42 +1411,6 @@ export default function Editor({
                       disabled={!canEdit}
                     />
                   </label>
-                  {!selectedIsOpening && (
-                    <>
-                      <label className="field">
-                        Rotation (deg)
-                        <input
-                          type="number"
-                          step="5"
-                          value={Math.round(selectedItem.rotation)}
-                          onFocus={beginPanelEdit}
-                          onChange={(event) =>
-                            handleItemChange('rotation', Number(event.target.value))
-                          }
-                          onBlur={() => endPanelEdit('Rotation updated')}
-                          disabled={!canEdit}
-                        />
-                      </label>
-                      <div className="inline-actions">
-                        <button
-                          className="btn btn-ghost"
-                          type="button"
-                          onClick={() => handleRotate90(-1)}
-                          disabled={!canEdit}
-                        >
-                          Rotate -90
-                        </button>
-                        <button
-                          className="btn btn-ghost"
-                          type="button"
-                          onClick={() => handleRotate90(1)}
-                          disabled={!canEdit}
-                        >
-                          Rotate +90
-                        </button>
-                      </div>
-                    </>
-                  )}
                   <ColorSwatchField
                     label="Colour"
                     value={selectedItem.color}

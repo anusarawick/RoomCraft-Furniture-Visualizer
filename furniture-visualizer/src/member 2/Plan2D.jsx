@@ -3,6 +3,7 @@ import { clamp } from './clamp'
 import { shadeColor } from '../member 3/color'
 import { isOpeningItem, snapOpeningToRoomWall } from '../utils/openingPlacement'
 import { getCollisionMap, hasItemCollision } from '../utils/collision'
+import { clampItemWithinRoom, normalizeRotation } from '../utils/rotationBounds'
 
 const PLAN_PADDING = 0.92
 
@@ -174,7 +175,7 @@ export default function Plan2D({
           )
           const x = clamp(nextX, 0, room.width - drag.startItem.width)
           const y = clamp(nextY, 0, room.depth - drag.startItem.depth)
-          return { ...item, x, y }
+          return clampItemWithinRoom({ ...item, x, y }, room)
         }
         if (drag.mode === 'resize') {
           const minSize = isOpeningItem(drag.startItem) ? 0.2 : 0.3
@@ -205,7 +206,7 @@ export default function Plan2D({
           }
           const width = clamp(nextWidth, minSize, room.width - drag.startItem.x)
           const depth = clamp(nextDepth, minSize, room.depth - drag.startItem.y)
-          return { ...item, width, depth }
+          return clampItemWithinRoom({ ...item, width, depth }, room)
         }
         if (drag.mode === 'rotate') {
           const centerX =
@@ -214,7 +215,7 @@ export default function Plan2D({
             offsetY + (room.y + drag.startItem.y + drag.startItem.depth / 2) * scale
           const angle = Math.atan2(pointer.y - centerY, pointer.x - centerX)
           const deg = ((angle * 180) / Math.PI + 90 + 360) % 360
-          return { ...item, rotation: deg }
+          return clampItemWithinRoom({ ...item, rotation: normalizeRotation(deg) }, room)
         }
         return item
       })

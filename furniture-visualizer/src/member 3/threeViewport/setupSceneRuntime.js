@@ -4,6 +4,7 @@ import { PointerLockControls } from 'three/examples/jsm/controls/PointerLockCont
 import { clamp } from '../../member 2/clamp'
 import { isOpeningItem, snapOpeningToRoomWall } from '../../utils/openingPlacement'
 import { hasItemCollision } from '../../utils/collision'
+import { clampItemWithinRoom, normalizeRotation } from '../../utils/rotationBounds'
 import { DEFAULT_WALL_OPACITY, OPEN_WALL_OPACITY } from './viewportHelpers'
 
 export const setupSceneRuntime = ({ container, controlMode, refs }) => {
@@ -300,7 +301,11 @@ export const setupSceneRuntime = ({ container, controlMode, refs }) => {
         const deltaX = event.clientX - drag.startPointer.x
         rotation = drag.startRotation + deltaX * 0.5
       }
-      nextItems = currentItems.map((item) => (item.id === drag.id ? { ...item, rotation } : item))
+      nextItems = currentItems.map((item) =>
+        item.id === drag.id
+          ? clampItemWithinRoom({ ...item, rotation: normalizeRotation(rotation) }, roomData)
+          : item,
+      )
     } else {
       const hit = getPlaneIntersection(event)
       if (!hit) return
@@ -338,8 +343,7 @@ export const setupSceneRuntime = ({ container, controlMode, refs }) => {
           item.id === drag.id
             ? {
                 ...item,
-                x: clamp(x, 0, Math.max(0, roomData.width - item.width)),
-                y: clamp(y, 0, Math.max(0, roomData.depth - item.depth)),
+                ...clampItemWithinRoom({ ...item, x, y }, roomData),
               }
             : item,
         )
