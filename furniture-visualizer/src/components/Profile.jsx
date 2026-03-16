@@ -17,19 +17,19 @@ export default function Profile({ user, onUpdateUser }) {
     <div>
       <div className="dashboard-header">
         <span className="tag" style={{ justifySelf: 'start' }}>Account</span>
-        <h1>Profile & Settings</h1>
+        <h1>Profile Settings</h1>
         <p>Manage your designer account and preferences.</p>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, maxWidth: 800 }}>
-        <form className="form-card card profile-form" onSubmit={handleSubmit} style={{ maxWidth: '100%' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
-            <div className="avatar" style={{ width: 56, height: 56, fontSize: '1.2rem' }}>
+      <div className="settings-page-grid">
+        <form className="form-card card profile-form" onSubmit={handleSubmit}>
+          <div className="profile-hero">
+            <div className="avatar profile-avatar">
               {(user?.name || 'D').slice(0, 1).toUpperCase()}
             </div>
-            <div>
-              <strong style={{ fontSize: '1.1rem' }}>{user?.name || 'Designer'}</strong>
-              <p style={{ fontSize: '0.82rem', color: 'var(--muted)' }}>{user?.email || 'designer@roomcraft.com'}</p>
+            <div className="profile-hero-copy">
+              <strong>{user?.name || 'Designer'}</strong>
+              <p>{user?.email || 'designer@roomcraft.com'}</p>
             </div>
           </div>
           <label className="field">
@@ -63,23 +63,23 @@ export default function Profile({ user, onUpdateUser }) {
           </button>
         </form>
 
-        <div className="card form-card" style={{ maxWidth: '100%' }}>
+        <div className="card form-card profile-summary-card">
           <h3>Account Details</h3>
-          <div style={{ display: 'grid', gap: 14 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
-              <span style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>Member since</span>
-              <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>January 2026</span>
+          <div className="detail-list">
+            <div className="detail-row">
+              <span>Member since</span>
+              <strong>January 2026</strong>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
-              <span style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>Designs created</span>
-              <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>12</span>
+            <div className="detail-row">
+              <span>Designs created</span>
+              <strong>12</strong>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
-              <span style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>Storage used</span>
-              <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>24 MB</span>
+            <div className="detail-row">
+              <span>Storage used</span>
+              <strong>24 MB</strong>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0' }}>
-              <span style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>Plan</span>
+            <div className="detail-row no-border">
+              <span>Plan</span>
               <span className="tag">Free Tier</span>
             </div>
           </div>
