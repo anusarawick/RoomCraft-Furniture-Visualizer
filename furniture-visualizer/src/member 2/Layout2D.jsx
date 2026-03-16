@@ -51,7 +51,7 @@ export default function Layout2D({
   const offsetY = (size.height - roomDepthPx) / 2
   const labelTop = Math.max(6, offsetY - 22)
   const labelSide = Math.max(6, offsetX - 22)
-  const collisionMap = getCollisionMap(items, { defaultRoomId: room?.id || null })
+  const collisionMap = getCollisionMap(items, { defaultRoomId: room?.id || null, room })
 
   const getPointer = (event) => {
     const rect = stageRef.current.getBoundingClientRect()
@@ -193,6 +193,7 @@ export default function Layout2D({
       dragRef.current.moved = true
       dragRef.current.hasConflict = hasItemCollision(drag.id, nextItems, {
         defaultRoomId: room?.id || null,
+        room,
       })
       dragRef.current.lastItems = nextItems
       onPreviewChange?.(nextItems)

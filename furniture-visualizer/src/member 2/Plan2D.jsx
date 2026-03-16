@@ -67,7 +67,7 @@ export default function Plan2D({
   }, [])
 
   const bounds = useMemo(() => getRoomBounds(rooms), [rooms])
-  const collisionMap = useMemo(() => getCollisionMap(items), [items])
+  const collisionMap = useMemo(() => getCollisionMap(items, { rooms }), [items, rooms])
   const totalWidth = Math.max(1, bounds.maxX - bounds.minX)
   const totalDepth = Math.max(1, bounds.maxY - bounds.minY)
   const scale =
@@ -240,6 +240,7 @@ export default function Plan2D({
       dragRef.current.moved = true
       dragRef.current.hasConflict = hasItemCollision(drag.id, nextItems, {
         defaultRoomId: drag.room?.id || null,
+        room: drag.room || null,
       })
       dragRef.current.lastItems = nextItems
       onPreviewChange?.(nextItems)

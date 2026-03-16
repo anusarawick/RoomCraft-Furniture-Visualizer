@@ -345,6 +345,7 @@ export const setupSceneRuntime = ({ container, controlMode, refs }) => {
       }
       drag.hasConflict = hasItemCollision(drag.id, nextItems, {
         defaultRoomId: target.roomId || roomData?.id || null,
+        room: roomData,
       })
     }
 

@@ -150,7 +150,7 @@ const findAvailablePosition = ({
         y,
       },
       existingItems,
-      { defaultRoomId },
+      { defaultRoomId, room },
     )
 
   const normalizePosition = (position) => {
@@ -269,6 +269,7 @@ const findAvailableOpeningPlacement = ({
     if (
       !isPlacementConflicting(candidate, existingItems, {
         defaultRoomId,
+        room,
       })
     ) {
       return candidate

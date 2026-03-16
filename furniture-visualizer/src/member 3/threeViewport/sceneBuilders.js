@@ -203,7 +203,7 @@ export const buildFurnitureGroup = ({
 
   const group = new THREE.Group()
   furnitureGroupRef.current = group
-  const collisionMap = getCollisionMap(items, { defaultRoomId: room?.id || null })
+  const collisionMap = getCollisionMap(items, { defaultRoomId: room?.id || null, room })
 
   items.forEach((item) => {
     const catalogItem = catalog.find((entry) => entry.id === item.type)
