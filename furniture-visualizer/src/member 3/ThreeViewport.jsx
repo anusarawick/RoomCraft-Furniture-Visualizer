@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { clamp } from '../member 2/clamp'
+import { cloneCanvas } from '../utils/canvasExport'
 import { WINDOW_OUTSIDE_VIEW } from './threeViewport/viewportHelpers'
 import { isOpeningItem } from '../utils/openingPlacement'
 import { setupSceneRuntime } from './threeViewport/setupSceneRuntime'
@@ -24,6 +25,7 @@ export default function ThreeViewport({
   onPreviewChange,
   onCommitChange,
   onInvalidPlacement,
+  onRenderReady,
 }) {
   const containerRef = useRef(null)
   const sceneRef = useRef(null)
@@ -209,6 +211,25 @@ export default function ThreeViewport({
       return info.status === 'error' ? item.label : null
     })
     .filter(Boolean)
+
+  useEffect(() => {
+    if (!onRenderReady || isLoading || !rendererRef.current) return undefined
+    let cancelled = false
+
+    const emitSnapshot = () => {
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          if (cancelled || !rendererRef.current) return
+          onRenderReady(cloneCanvas(rendererRef.current.domElement))
+        })
+      })
+    }
+
+    emitSnapshot()
+    return () => {
+      cancelled = true
+    }
+  }, [onRenderReady, isLoading, modelVersion, items, room, globalShade, selectedId, controlMode])
 
   const hintText =
     controlMode === 'inside'

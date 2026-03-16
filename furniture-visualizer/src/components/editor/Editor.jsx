@@ -6,7 +6,6 @@ import ThreeViewport from '../../member 3/ThreeViewport'
 import { clamp } from '../../member 2/clamp'
 import { shadeColor } from '../../member 3/color'
 import {
-  cloneCanvas,
   createSplitExportCanvas,
   downloadCanvasAsPdf,
   downloadCanvasAsPng,
@@ -307,7 +306,6 @@ export default function Editor({
     () => design?.rooms?.[0]?.id || design?.room?.id || null,
   )
   const statusTimer = useRef(null)
-  const canvasStageRef = useRef(null)
   const [exportDialogOpen, setExportDialogOpen] = useState(false)
   const [exportView, setExportView] = useState('2d')
   const [exportFormat, setExportFormat] = useState('png')
@@ -856,30 +854,6 @@ export default function Editor({
     return canvas
   }
 
-  const waitForNextFrame = () =>
-    new Promise((resolve) => {
-      window.requestAnimationFrame(() => window.requestAnimationFrame(resolve))
-    })
-
-  const waitForThreeCanvasReady = async (root, timeoutMs = 4500) => {
-    const startedAt = Date.now()
-    while (Date.now() - startedAt < timeoutMs) {
-      const canvas = root.querySelector('.three-stage canvas')
-      const loading = root.querySelector('.three-loading')
-      if (canvas && !loading) {
-        await waitForNextFrame()
-        return canvas
-      }
-      await new Promise((resolve) => window.setTimeout(resolve, 80))
-    }
-    return root.querySelector('.three-stage canvas')
-  }
-
-  const captureVisibleThreeCanvas = async () => {
-    const visibleCanvas = await waitForThreeCanvasReady(canvasStageRef.current || document.body, 1200)
-    return visibleCanvas ? cloneCanvas(visibleCanvas) : null
-  }
-
   const renderThreeExportCanvas = async () => {
     if (!activeRoom) return null
     const host = document.createElement('div')
@@ -891,22 +865,29 @@ export default function Editor({
     document.body.appendChild(host)
     const root = createRoot(host)
 
-    root.render(
-      <ThreeViewport
-        room={activeRoom}
-        items={activeRoomItems}
-        catalog={catalog}
-        globalShade={design.globalShade}
-        selectedId={null}
-        activeTool="select"
-        readOnly
-        controlMode="orbit"
-      />,
-    )
-
     try {
-      const canvas = await waitForThreeCanvasReady(host)
-      return canvas ? cloneCanvas(canvas) : null
+      const canvas = await new Promise((resolve) => {
+        const timeoutId = window.setTimeout(() => resolve(null), 6000)
+
+        root.render(
+          <ThreeViewport
+            room={activeRoom}
+            items={activeRoomItems}
+            catalog={catalog}
+            globalShade={design.globalShade}
+            selectedId={null}
+            activeTool="select"
+            readOnly
+            controlMode="orbit"
+            onRenderReady={(snapshot) => {
+              window.clearTimeout(timeoutId)
+              resolve(snapshot)
+            }}
+          />,
+        )
+      })
+
+      return canvas
     } finally {
       root.unmount()
       host.remove()
@@ -918,8 +899,7 @@ export default function Editor({
       return build2DExportCanvas()
     }
 
-    const threeCanvas =
-      viewMode === '3d' || isSplitView ? await captureVisibleThreeCanvas() : await renderThreeExportCanvas()
+    const threeCanvas = await renderThreeExportCanvas()
 
     if (exportView === '3d') {
       return threeCanvas
@@ -1134,7 +1114,6 @@ export default function Editor({
             <span>{viewLabel}</span>
           </div>
           <div
-            ref={canvasStageRef}
             className={`canvas-stage ${isSplitView ? 'split' : ''}`}
             onDragOver={handleCanvasDragOver}
             onDrop={handleCanvasDrop}
