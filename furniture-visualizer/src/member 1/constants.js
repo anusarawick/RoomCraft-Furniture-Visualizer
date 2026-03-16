@@ -2,6 +2,7 @@ export const STORAGE_KEYS = {
   user: 'fv-user',
   designs: 'fv-designs',
   accessibility: 'fv-accessibility',
+  catalog: 'fv-catalog',
 }
 
 export const DEFAULT_ROOM = {

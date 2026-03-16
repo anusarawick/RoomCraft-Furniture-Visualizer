@@ -40,6 +40,15 @@ const DEFAULT_ACCESSIBILITY = {
   reducedMotion: false,
 }
 
+const mergeCatalog = (storedCatalog) => {
+  if (!Array.isArray(storedCatalog) || !storedCatalog.length) {
+    return FURNITURE_CATALOG
+  }
+
+  const storedMap = new Map(storedCatalog.map((item) => [item.id, item]))
+  return FURNITURE_CATALOG.map((item) => ({ ...item, ...(storedMap.get(item.id) || {}) }))
+}
+
 export default function App() {
   const [user, setUser] = useState(() => loadFromStorage(STORAGE_KEYS.user, null))
   const [designs, setDesigns] = useState(() => {
@@ -54,6 +63,9 @@ export default function App() {
   const [accessibility, setAccessibility] = useState(() =>
     loadFromStorage(STORAGE_KEYS.accessibility, DEFAULT_ACCESSIBILITY),
   )
+  const [catalog, setCatalog] = useState(() =>
+    mergeCatalog(loadFromStorage(STORAGE_KEYS.catalog, FURNITURE_CATALOG)),
+  )
   const { notify } = useNotifications()
 
   useEffect(() => {
@@ -65,6 +77,10 @@ export default function App() {
   useEffect(() => {
     saveToStorage(STORAGE_KEYS.designs, designs)
   }, [designs])
+
+  useEffect(() => {
+    saveToStorage(STORAGE_KEYS.catalog, catalog)
+  }, [catalog])
 
   useEffect(() => {
     if (user) {
@@ -133,6 +149,26 @@ export default function App() {
     setDesigns((prev) =>
       prev.map((design) => (design.id === nextDesign.id ? nextDesign : design)),
     )
+  }
+
+  const handleUpdateCatalogItem = (itemId, changes) => {
+    setCatalog((prev) =>
+      prev.map((item) => (item.id === itemId ? { ...item, ...changes } : item)),
+    )
+    setDesigns((prev) =>
+      prev.map((design) => ({
+        ...design,
+        items: design.items.map((item) =>
+          item.type === itemId
+            ? {
+                ...item,
+                label: changes.name ?? item.label,
+              }
+            : item,
+        ),
+      })),
+    )
+    notify('Catalog item updated.', 'success', 'Catalog')
   }
 
   const handleDeleteDesign = (designId) => {
@@ -211,7 +247,9 @@ export default function App() {
           onNavigate={navigate}
         />
       )}
-      {route === 'catalog' && <Catalog catalog={FURNITURE_CATALOG} />}
+      {route === 'catalog' && (
+        <Catalog catalog={catalog} onUpdateItem={handleUpdateCatalogItem} />
+      )}
       {route === 'designs' && (
         <MyDesigns
           designs={designs}
@@ -227,7 +265,7 @@ export default function App() {
         <Editor
           user={user}
           design={currentDesign}
-          catalog={FURNITURE_CATALOG}
+          catalog={catalog}
           onUpdateDesign={handleUpdateDesign}
           onSaveDesign={handleSaveDesign}
           onExit={() => setRoute('designs')}
@@ -238,7 +276,7 @@ export default function App() {
         <Editor
           user={user}
           design={currentDesign}
-          catalog={FURNITURE_CATALOG}
+          catalog={catalog}
           onUpdateDesign={handleUpdateDesign}
           onSaveDesign={handleSaveDesign}
           onExit={() => setRoute('dashboard')}
@@ -251,7 +289,7 @@ export default function App() {
         <Editor
           user={user}
           design={currentDesign}
-          catalog={FURNITURE_CATALOG}
+          catalog={catalog}
           onUpdateDesign={handleUpdateDesign}
           onSaveDesign={handleSaveDesign}
           onExit={() => setRoute('designs')}
@@ -264,7 +302,7 @@ export default function App() {
         <Editor
           user={user}
           design={currentDesign}
-          catalog={FURNITURE_CATALOG}
+          catalog={catalog}
           onUpdateDesign={handleUpdateDesign}
           onSaveDesign={handleSaveDesign}
           onExit={() => setRoute('designs')}
