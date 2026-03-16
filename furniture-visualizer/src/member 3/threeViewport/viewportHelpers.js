@@ -95,6 +95,7 @@ export const createOpeningObject = ({
   globalShade,
   outsideTexture,
   isConflict = false,
+  isSelected = false,
 }) => {
   if (!isOpeningItem(item)) return null
 
@@ -106,8 +107,12 @@ export const createOpeningObject = ({
   const wallThickness = isHorizontalWall ? depth : width
   const fallbackColor = isConflict ? '#ef4444' : item.color || '#d7c7b2'
   const baseColor = shadeColor(fallbackColor, (item.shade || 0) + globalShade * 0.35)
-  const frameColor = new THREE.Color(baseColor)
-  const accentColor = new THREE.Color(shadeColor(fallbackColor, (item.shade || 0) + globalShade * 0.52))
+  const frameColor = new THREE.Color(
+    isSelected ? shadeColor(fallbackColor, Math.max(0, (item.shade || 0) + globalShade * 0.18)) : baseColor,
+  )
+  const accentColor = new THREE.Color(
+    isSelected ? '#3d5a4b' : shadeColor(fallbackColor, (item.shade || 0) + globalShade * 0.52),
+  )
   const revealColor = new THREE.Color(shadeColor(room?.wallColor || '#d7c7b2', 0.28))
   const group = new THREE.Group()
   const wallMount = new THREE.Group()

@@ -215,6 +215,7 @@ export const buildFurnitureGroup = ({
         globalShade,
         outsideTexture,
         isConflict,
+        isSelected: item.id === selectedId,
       })
       if (!openingObject) return
 
@@ -227,11 +228,6 @@ export const buildFurnitureGroup = ({
       )
       groupItem.rotation.y = THREE.MathUtils.degToRad(item.rotation || 0)
       groupItem.add(openingObject)
-
-      if (item.id === selectedId) {
-        const helper = new THREE.BoxHelper(groupItem, 0x3d5a4b)
-        groupItem.add(helper)
-      }
 
       group.add(groupItem)
       return
@@ -246,12 +242,17 @@ export const buildFurnitureGroup = ({
     const source = resolveModelSource(modelInfo, catalogItem)
     if (!source) return
     const object = source.clone(true)
+    const isSelected = item.id === selectedId
     object.traverse((child) => {
       if (child.isMesh) {
         child.material = child.material.clone()
         const baseColor = isConflict ? '#ef4444' : item.color
         const shaded = shadeColor(baseColor, item.shade + globalShade * 0.6)
         child.material.color = new THREE.Color(shaded)
+        if ('emissive' in child.material) {
+          child.material.emissive = new THREE.Color(isSelected ? '#2f4f42' : '#000000')
+          child.material.emissiveIntensity = isSelected ? 0.22 : 0
+        }
         child.castShadow = true
         child.receiveShadow = true
       }
@@ -290,11 +291,6 @@ export const buildFurnitureGroup = ({
     groupItem.position.set(position.x, 0, position.z)
     groupItem.rotation.y = THREE.MathUtils.degToRad(item.rotation)
     groupItem.add(object)
-
-    if (item.id === selectedId) {
-      const helper = new THREE.BoxHelper(groupItem, 0x3d5a4b)
-      groupItem.add(helper)
-    }
 
     group.add(groupItem)
   })
