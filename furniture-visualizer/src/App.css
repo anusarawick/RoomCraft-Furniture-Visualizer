@@ -2926,3 +2926,61 @@ input[type='search']:focus {
 .landing-metrics span {
   display: block;
 }
+
+.login-mode-switch {
+  display: inline-grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  margin-bottom: 18px;
+}
+
+.login-mode-switch button {
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  padding: 10px 18px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.login-mode-switch button.active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 8px 20px rgba(15, 10, 6, 0.08);
+}
+
+.login-form-note {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.login-form-error {
+  border: 1px solid rgba(164, 55, 31, 0.18);
+  background: rgba(164, 55, 31, 0.08);
+  color: #8d321f;
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  font-size: 0.86rem;
+}
+
+.app-loading-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at top, rgba(201, 124, 93, 0.22), transparent 32%),
+    linear-gradient(180deg, #f7f1eb 0%, #f4ece3 100%);
+}
+
+.app-loading-card {
+  width: min(460px, 100%);
+  display: grid;
+  gap: 10px;
+  padding: 32px;
+  text-align: center;
+}

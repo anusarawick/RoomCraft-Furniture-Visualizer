@@ -3,7 +3,7 @@ import ColorSwatchField from '../components/ColorSwatchField'
 import { FLOOR_COLOR_PRESETS, ROOM_SHAPES, WALL_COLOR_PRESETS } from './constants'
 import { getRoomClipPath, isLShapedRoom } from '../utils/roomShape'
 
-export default function NewDesign({ onCreate }) {
+export default function NewDesign({ onCreate, isSubmitting = false }) {
   const [name, setName] = useState('Living')
   const [shape, setShape] = useState('Rectangle')
   const [planType, setPlanType] = useState('single')
@@ -14,9 +14,9 @@ export default function NewDesign({ onCreate }) {
   const [wallColor, setWallColor] = useState('#F5F0EB')
   const [floorColor, setFloorColor] = useState('#C8A882')
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault()
-    onCreate({
+    await onCreate({
       name: name ? `${name} Design` : 'New Design',
       room: {
         name,
@@ -182,8 +182,8 @@ export default function NewDesign({ onCreate }) {
         </div>
 
         <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'center' }}>
-          <button className="btn btn-primary" type="submit">
-            Create Design
+          <button className="btn btn-primary" type="submit" disabled={isSubmitting}>
+            {isSubmitting ? 'Creating Design...' : 'Create Design'}
           </button>
         </div>
       </form>
