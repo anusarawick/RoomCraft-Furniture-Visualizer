@@ -9,6 +9,13 @@ import { createId } from '../../utils/ids'
 import { isPlacementConflicting } from '../../utils/collision'
 import { useNotifications } from '../../member 4/NotificationProvider'
 import FurnitureIcon from '../../member 2/FurnitureIcon'
+import ColorSwatchField from '../ColorSwatchField'
+import {
+  ACCENT_COLOR_PRESETS,
+  FLOOR_COLOR_PRESETS,
+  ITEM_COLOR_PRESETS,
+  WALL_COLOR_PRESETS,
+} from '../../member 1/constants'
 import {
   isOpeningItem,
   isOpeningElementType,
@@ -408,6 +415,17 @@ export default function Editor({
       setPanelEditActive(false)
       if (message) showStatus(message, 'success')
     }
+  }
+
+  const applyInstantPanelChange = (applyChange, message) => {
+    if (!canEdit) return
+    if (panelEditActive) {
+      setPanelEditActive(false)
+    } else {
+      pushHistory(cloneDesign(design))
+    }
+    applyChange()
+    if (message) showStatus(message, 'success')
   }
 
   const handleUndo = () => {
@@ -1337,17 +1355,21 @@ export default function Editor({
                       </div>
                     </>
                   )}
-                  <label className="field">
-                    Colour
-                    <input
-                      type="color"
-                      value={selectedItem.color}
-                      onFocus={beginPanelEdit}
-                      onChange={(event) => handleItemChange('color', event.target.value)}
-                      onBlur={() => endPanelEdit('Colour updated')}
-                      disabled={!canEdit}
-                    />
-                  </label>
+                  <ColorSwatchField
+                    label="Colour"
+                    value={selectedItem.color}
+                    presets={ITEM_COLOR_PRESETS}
+                    onChange={(nextColor) => handleItemChange('color', nextColor)}
+                    onPresetSelect={(nextColor) =>
+                      applyInstantPanelChange(
+                        () => handleItemChange('color', nextColor),
+                        'Colour updated',
+                      )
+                    }
+                    onCustomFocus={beginPanelEdit}
+                    onCustomBlur={() => endPanelEdit('Colour updated')}
+                    disabled={!canEdit}
+                  />
                   <label className="field">
                     Shade
                     <input
@@ -1508,55 +1530,56 @@ export default function Editor({
 
                 <div className="properties-section">
                   <div className="color-row">
-                    <label className="field">
-                      Wall Color
-                      <div className="color-input">
-                        <input
-                          type="color"
-                          value={activeRoom?.wallColor || '#ffffff'}
-                          onFocus={beginPanelEdit}
-                          onChange={(event) => handleRoomChange('wallColor', event.target.value)}
-                          onBlur={() => endPanelEdit('Wall color updated')}
-                          disabled={!canEdit}
-                        />
-                        <input type="text" value={activeRoom?.wallColor || ''} readOnly />
-                      </div>
-                    </label>
-                    <label className="field">
-                      Floor Color
-                      <div className="color-input">
-                        <input
-                          type="color"
-                          value={activeRoom?.floorColor || '#ffffff'}
-                          onFocus={beginPanelEdit}
-                          onChange={(event) => handleRoomChange('floorColor', event.target.value)}
-                          onBlur={() => endPanelEdit('Floor color updated')}
-                          disabled={!canEdit}
-                        />
-                        <input type="text" value={activeRoom?.floorColor || ''} readOnly />
-                      </div>
-                    </label>
+                    <ColorSwatchField
+                      label="Wall Color"
+                      value={activeRoom?.wallColor || '#FFFFFF'}
+                      presets={WALL_COLOR_PRESETS}
+                      onChange={(nextColor) => handleRoomChange('wallColor', nextColor)}
+                      onPresetSelect={(nextColor) =>
+                        applyInstantPanelChange(
+                          () => handleRoomChange('wallColor', nextColor),
+                          'Wall color updated',
+                        )
+                      }
+                      onCustomFocus={beginPanelEdit}
+                      onCustomBlur={() => endPanelEdit('Wall color updated')}
+                      disabled={!canEdit}
+                    />
+                    <ColorSwatchField
+                      label="Floor Color"
+                      value={activeRoom?.floorColor || '#FFFFFF'}
+                      presets={FLOOR_COLOR_PRESETS}
+                      onChange={(nextColor) => handleRoomChange('floorColor', nextColor)}
+                      onPresetSelect={(nextColor) =>
+                        applyInstantPanelChange(
+                          () => handleRoomChange('floorColor', nextColor),
+                          'Floor color updated',
+                        )
+                      }
+                      onCustomFocus={beginPanelEdit}
+                      onCustomBlur={() => endPanelEdit('Floor color updated')}
+                      disabled={!canEdit}
+                    />
                   </div>
                 </div>
 
                 <details className="properties-section" open={!readOnly}>
                   <summary>Design Styling</summary>
-                  <label className="field">
-                    Accent Colour
-                    <div className="color-input">
-                      <input
-                        type="color"
-                        value={design.accentColor}
-                        onFocus={beginPanelEdit}
-                        onChange={(event) =>
-                          updateDesign({ ...design, accentColor: event.target.value })
-                        }
-                        onBlur={() => endPanelEdit('Accent colour updated')}
-                        disabled={!canEdit}
-                      />
-                      <input type="text" value={design.accentColor} readOnly />
-                    </div>
-                  </label>
+                  <ColorSwatchField
+                    label="Accent Colour"
+                    value={design.accentColor}
+                    presets={ACCENT_COLOR_PRESETS}
+                    onChange={(nextColor) => updateDesign({ ...design, accentColor: nextColor })}
+                    onPresetSelect={(nextColor) =>
+                      applyInstantPanelChange(
+                        () => updateDesign({ ...design, accentColor: nextColor }),
+                        'Accent colour updated',
+                      )
+                    }
+                    onCustomFocus={beginPanelEdit}
+                    onCustomBlur={() => endPanelEdit('Accent colour updated')}
+                    disabled={!canEdit}
+                  />
                   <button className="btn btn-ghost" onClick={applyAccentToAll} disabled={!canEdit}>
                     Apply to all items
                   </button>
