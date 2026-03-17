@@ -1,0 +1,27 @@
+services:
+  mongodb:
+    image: mongo:7
+    container_name: roomcraft-mongodb
+    restart: unless-stopped
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongodb_data:/data/db
+
+  backend:
+    build:
+      context: ./backend
+    container_name: roomcraft-api
+    restart: unless-stopped
+    depends_on:
+      - mongodb
+    environment:
+      PORT: 4000
+      MONGODB_URI: mongodb://mongodb:27017/roomcraft
+      JWT_SECRET: change-this-before-production
+      CLIENT_ORIGIN: http://localhost:5173
+    ports:
+      - '4000:4000'
+
+volumes:
+  mongodb_data:
