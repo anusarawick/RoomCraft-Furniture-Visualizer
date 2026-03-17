@@ -15,5 +15,17 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
+    test: {
+      environment: 'jsdom',
+      globals: true,
+      setupFiles: './src/test/setup.js',
+      css: true,
+      coverage: {
+        provider: 'v8',
+        reporter: ['text', 'html'],
+        include: ['src/**/*.{js,jsx}'],
+        exclude: ['src/main.jsx', 'src/test/**'],
+      },
+    },
   }
 })
