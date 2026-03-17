@@ -1719,6 +1719,38 @@ input[type='search']:focus {
   font-size: 0.84rem;
 }
 
+.profile-password-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.profile-password-card strong {
+  display: block;
+  color: var(--text);
+  font-size: 0.95rem;
+}
+
+.profile-password-note {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.profile-password-dialog {
+  width: min(520px, 100%);
+}
+
+.profile-dialog-grid {
+  display: grid;
+  gap: 14px;
+}
+
 .detail-list {
   display: grid;
   gap: 0;

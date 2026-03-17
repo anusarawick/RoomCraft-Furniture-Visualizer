@@ -37,6 +37,8 @@ router.put('/me', requireAuth, asyncHandler(async (req, res) => {
     typeof req.body.role === 'string' && req.body.role.trim()
       ? req.body.role.trim()
       : user.role
+  const currentPassword =
+    typeof req.body.currentPassword === 'string' ? req.body.currentPassword : ''
   const nextPassword = typeof req.body.password === 'string' ? req.body.password : ''
 
   if (!EMAIL_PATTERN.test(nextEmail)) {
@@ -45,6 +47,10 @@ router.put('/me', requireAuth, asyncHandler(async (req, res) => {
 
   if (nextPassword && nextPassword.length < 8) {
     return res.status(400).json({ message: 'New password must be at least 8 characters.' })
+  }
+
+  if (nextPassword && !currentPassword) {
+    return res.status(400).json({ message: 'Enter your current password.' })
   }
 
   const conflictingUser = await User.findOne({
@@ -60,6 +66,10 @@ router.put('/me', requireAuth, asyncHandler(async (req, res) => {
   user.role = nextRole
 
   if (nextPassword) {
+    const matches = await bcrypt.compare(currentPassword, user.passwordHash)
+    if (!matches) {
+      return res.status(401).json({ message: 'Current password is incorrect.' })
+    }
     user.passwordHash = await bcrypt.hash(nextPassword, 10)
   }
 
