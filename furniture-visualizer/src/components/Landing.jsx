@@ -107,6 +107,13 @@ export default function Landing({ onLogin, onStart }) {
   const [pageReady, setPageReady] = useState(false)
   const [matSlide, setMatSlide] = useState(0)
   const [menuOpen, setMenuOpen] = useState(false)
+  const heroRef = useRef(null)
+  const materialsRef = useRef(null)
+  const collectionsRef = useRef(null)
+  const projectsRef = useRef(null)
+  const philosophyRef = useRef(null)
+  const bespokeRef = useRef(null)
+  const contactRef = useRef(null)
 
   useEffect(() => {
     requestAnimationFrame(() => setPageReady(true))
@@ -131,6 +138,29 @@ export default function Landing({ onLogin, onStart }) {
     resetTimer()
   }
 
+  const scrollToSection = useCallback((sectionRef) => {
+    const element = sectionRef?.current
+    if (!element) return
+
+    const navOffset = 86
+    const top = element.getBoundingClientRect().top + window.scrollY - navOffset
+    window.scrollTo({
+      top: Math.max(0, top),
+      behavior: 'smooth',
+    })
+    setMenuOpen(false)
+  }, [])
+
+  const handleStart = useCallback(() => {
+    setMenuOpen(false)
+    onStart?.()
+  }, [onStart])
+
+  const handleLogin = useCallback(() => {
+    setMenuOpen(false)
+    onLogin?.()
+  }, [onLogin])
+
   return (
     <div className={`ee-landing ${pageReady ? 'ee-ready' : ''}`}>
       {/* ===== NAV ===== */}
@@ -149,27 +179,32 @@ export default function Landing({ onLogin, onStart }) {
 
           <div className="ee-nav-left">
             <nav className={`ee-nav-links ${menuOpen ? 'open' : ''}`}>
-              <button type="button" onClick={onStart}>PRODUCTS</button>
-              <button type="button" onClick={onStart}>PROJECT</button>
-              <button type="button" onClick={onStart}>ABOUT</button>
+              <button type="button" onClick={() => scrollToSection(collectionsRef)}>PRODUCTS</button>
+              <button type="button" onClick={() => scrollToSection(projectsRef)}>PROJECT</button>
+              <button type="button" onClick={() => scrollToSection(philosophyRef)}>ABOUT</button>
             </nav>
           </div>
 
-          <div className="ee-nav-logo" onClick={onStart}>
+          <button
+            type="button"
+            className="ee-nav-logo"
+            onClick={() => scrollToSection(heroRef)}
+            aria-label="Back to top"
+          >
             <span className="ee-logo-text">RoomCraft</span>
-          </div>
+          </button>
 
           <div className="ee-nav-right-group">
             <nav className={`ee-nav-links ee-nav-right ${menuOpen ? 'open' : ''}`}>
-              <button type="button" onClick={onStart}>BESPOKE</button>
-              <button type="button" onClick={onStart}>STORE</button>
-              <button type="button" onClick={onLogin}>CONTACT</button>
+              <button type="button" onClick={() => scrollToSection(bespokeRef)}>BESPOKE</button>
+              <button type="button" onClick={() => scrollToSection(materialsRef)}>STORE</button>
+              <button type="button" onClick={() => scrollToSection(contactRef)}>CONTACT</button>
             </nav>
             <div className="ee-nav-actions">
               <button
                 type="button"
                 className="ee-nav-icon-btn"
-                onClick={onLogin}
+                onClick={handleLogin}
                 aria-label="Login"
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -180,7 +215,7 @@ export default function Landing({ onLogin, onStart }) {
               <button
                 type="button"
                 className="ee-nav-icon-btn"
-                onClick={onStart}
+                onClick={() => scrollToSection(collectionsRef)}
                 aria-label="Cart"
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -195,7 +230,7 @@ export default function Landing({ onLogin, onStart }) {
       </header>
 
       {/* ===== HERO ===== */}
-      <section className="ee-hero">
+      <section ref={heroRef} className="ee-hero">
         <div className="ee-hero-img-wrap">
           <img
             src="https://images.unsplash.com/photo-1616486338812-3dadae4b4ace?w=1800&h=900&fit=crop"
@@ -212,7 +247,10 @@ export default function Landing({ onLogin, onStart }) {
             <p>Where traditional artisanship meets modern design sensibility</p>
           </Reveal>
           <Reveal delay={400}>
-            <button className="ee-btn-outline" onClick={onStart}>
+            <button
+              className="ee-btn-outline ee-btn-outline--light ee-hero-cta"
+              onClick={() => scrollToSection(collectionsRef)}
+            >
               Discover the Collection
             </button>
           </Reveal>
@@ -220,7 +258,7 @@ export default function Landing({ onLogin, onStart }) {
       </section>
 
       {/* ===== MATERIALS ===== */}
-      <section className="ee-section ee-materials">
+      <section ref={materialsRef} className="ee-section ee-materials">
         <Reveal>
           <h2 className="ee-section-label">MATERIALS</h2>
         </Reveal>
@@ -234,7 +272,10 @@ export default function Landing({ onLogin, onStart }) {
               <div className="ee-mat-slide-overlay">
                 <h3>{slide.title}</h3>
                 <p>{slide.subtitle}</p>
-                <button className="ee-btn-outline ee-btn-outline--light" onClick={onStart}>
+                <button
+                  className="ee-btn-outline ee-btn-outline--light"
+                  onClick={() => scrollToSection(collectionsRef)}
+                >
                   Discover the Collection Story
                 </button>
               </div>
@@ -254,14 +295,14 @@ export default function Landing({ onLogin, onStart }) {
       </section>
 
       {/* ===== SHOP COLLECTIONS ===== */}
-      <section className="ee-section ee-collections">
+      <section ref={collectionsRef} className="ee-section ee-collections">
         <Reveal>
           <h2 className="ee-section-label">SHOP OUR COLLECTIONS</h2>
         </Reveal>
         <div className="ee-coll-grid">
           {COLLECTIONS.map((item, i) => (
             <Reveal key={item.name} delay={i * 120}>
-              <div className="ee-coll-card" onClick={onStart}>
+              <div className="ee-coll-card" onClick={handleStart}>
                 <div className="ee-coll-img">
                   <img src={item.img} alt={item.name} loading="lazy" />
                 </div>
@@ -273,13 +314,13 @@ export default function Landing({ onLogin, onStart }) {
       </section>
 
       {/* ===== PROJECTS ===== */}
-      <section className="ee-section ee-projects">
+      <section ref={projectsRef} className="ee-section ee-projects">
         <div className="ee-projects-header">
           <Reveal>
             <h2 className="ee-section-label">PROJECTS</h2>
           </Reveal>
           <Reveal delay={100}>
-            <button className="ee-link-btn" onClick={onStart}>
+            <button className="ee-link-btn" onClick={() => scrollToSection(bespokeRef)}>
               Discover more →
             </button>
           </Reveal>
@@ -287,7 +328,7 @@ export default function Landing({ onLogin, onStart }) {
         <div className="ee-proj-grid">
           {PROJECTS.map((proj, i) => (
             <Reveal key={proj.name} delay={i * 100}>
-              <div className="ee-proj-card" onClick={onStart}>
+              <div className="ee-proj-card" onClick={() => scrollToSection(bespokeRef)}>
                 <img src={proj.img} alt={proj.name} loading="lazy" />
                 <div className="ee-proj-overlay">
                   <span>{proj.name}</span>
@@ -299,10 +340,10 @@ export default function Landing({ onLogin, onStart }) {
       </section>
 
       {/* ===== PHILOSOPHY ===== */}
-      <section className="ee-philosophy">
+      <section ref={philosophyRef} className="ee-philosophy">
         <div className="ee-phil-bg">
           <img
-            src="https://images.unsplash.com/photo-1616137466211-f73a09f6ae9d?w=1800&h=800&fit=crop"
+            src="https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?w=1800&h=800&fit=crop"
             alt="Artisan workshop"
             loading="lazy"
           />
@@ -322,7 +363,10 @@ export default function Landing({ onLogin, onStart }) {
             </p>
           </Reveal>
           <Reveal delay={500}>
-            <button className="ee-btn-outline ee-btn-outline--light" onClick={onStart}>
+            <button
+              className="ee-btn-outline ee-btn-outline--light"
+              onClick={() => scrollToSection(contactRef)}
+            >
               Learn Our Philosophy
             </button>
           </Reveal>
@@ -330,7 +374,7 @@ export default function Landing({ onLogin, onStart }) {
       </section>
 
       {/* ===== ARCHIVES & BESPOKE ===== */}
-      <section className="ee-section ee-twin">
+      <section ref={bespokeRef} className="ee-section ee-twin">
         <div className="ee-twin-grid">
           <Reveal>
             <div className="ee-twin-card">
@@ -340,7 +384,7 @@ export default function Landing({ onLogin, onStart }) {
                 where the beauty of natural materials blends with modern
                 aesthetics to be reborn in contemporary design.
               </p>
-              <button className="ee-link-btn" onClick={onStart}>
+              <button className="ee-link-btn" onClick={() => scrollToSection(projectsRef)}>
                 Learn more →
               </button>
             </div>
@@ -353,7 +397,7 @@ export default function Landing({ onLogin, onStart }) {
                 tailored to a variety of spaces, including private residences,
                 galleries, hotels, offices, and restaurants.
               </p>
-              <button className="ee-link-btn" onClick={onStart}>
+              <button className="ee-link-btn" onClick={handleLogin}>
                 Learn more →
               </button>
             </div>
@@ -362,31 +406,31 @@ export default function Landing({ onLogin, onStart }) {
       </section>
 
       {/* ===== FOOTER ===== */}
-      <footer className="ee-footer">
+      <footer ref={contactRef} className="ee-footer">
         <div className="ee-footer-inner">
           <div className="ee-footer-col">
             <h4>CONTACT</h4>
-            <button type="button" onClick={onLogin}>T. 070. 8129. 1111</button>
-            <button type="button" onClick={onLogin}>E. info@roomcraft.com</button>
+            <button type="button" onClick={handleLogin}>T. 070. 8129. 1111</button>
+            <button type="button" onClick={handleLogin}>E. info@roomcraft.com</button>
           </div>
           <div className="ee-footer-col">
             <h4>PRODUCTS</h4>
-            <button type="button" onClick={onStart}>By Category</button>
-            <button type="button" onClick={onStart}>Lounge</button>
-            <button type="button" onClick={onStart}>Dining</button>
-            <button type="button" onClick={onStart}>Office</button>
-            <button type="button" onClick={onStart}>Bedroom</button>
+            <button type="button" onClick={() => scrollToSection(collectionsRef)}>By Category</button>
+            <button type="button" onClick={() => scrollToSection(collectionsRef)}>Lounge</button>
+            <button type="button" onClick={() => scrollToSection(collectionsRef)}>Dining</button>
+            <button type="button" onClick={() => scrollToSection(collectionsRef)}>Office</button>
+            <button type="button" onClick={() => scrollToSection(collectionsRef)}>Bedroom</button>
           </div>
           <div className="ee-footer-col">
             <h4>CLIENT SERVICE</h4>
-            <button type="button" onClick={onLogin}>FAQ</button>
-            <button type="button" onClick={onLogin}>Contact</button>
-            <button type="button" onClick={onLogin}>Location</button>
+            <button type="button" onClick={handleLogin}>FAQ</button>
+            <button type="button" onClick={() => scrollToSection(contactRef)}>Contact</button>
+            <button type="button" onClick={() => scrollToSection(contactRef)}>Location</button>
           </div>
           <div className="ee-footer-col">
             <h4>LEGAL INFO</h4>
-            <button type="button" onClick={onStart}>Privacy Policy</button>
-            <button type="button" onClick={onStart}>Terms of Use</button>
+            <button type="button" onClick={() => scrollToSection(philosophyRef)}>Privacy Policy</button>
+            <button type="button" onClick={() => scrollToSection(philosophyRef)}>Terms of Use</button>
           </div>
         </div>
         <div className="ee-footer-bottom">

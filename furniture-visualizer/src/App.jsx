@@ -58,6 +58,17 @@ const DEFAULT_ACCESSIBILITY = {
 }
 
 const getStoredToken = () => loadAuthSession()?.token || ''
+const DESIGN_ROUTES = ['editor', 'editor-2d', 'view-design', 'viewer-3d']
+
+const getHistoryRouteState = () => {
+  if (typeof window === 'undefined') return null
+  const state = window.history.state
+  if (!state || !ROUTES.includes(state.route)) return null
+  return {
+    route: state.route,
+    currentId: typeof state.currentId === 'string' ? state.currentId : null,
+  }
+}
 
 const mergeCatalog = (storedCatalog) => {
   if (!Array.isArray(storedCatalog) || !storedCatalog.length) {
@@ -69,11 +80,14 @@ const mergeCatalog = (storedCatalog) => {
 }
 
 export default function App() {
+  const initialHistoryState = getHistoryRouteState()
   const [sessionToken, setSessionToken] = useState(getStoredToken)
   const [user, setUser] = useState(null)
   const [designs, setDesigns] = useState([])
-  const [route, setRoute] = useState(() => (getStoredToken() ? 'dashboard' : 'landing'))
-  const [currentId, setCurrentId] = useState(null)
+  const [route, setRoute] = useState(
+    () => initialHistoryState?.route || (getStoredToken() ? 'dashboard' : 'landing'),
+  )
+  const [currentId, setCurrentId] = useState(() => initialHistoryState?.currentId || null)
   const [accessibility, setAccessibility] = useState(() =>
     loadFromStorage(STORAGE_KEYS.accessibility, DEFAULT_ACCESSIBILITY),
   )
@@ -87,18 +101,87 @@ export default function App() {
   const [savingDesignId, setSavingDesignId] = useState(null)
   const { notify } = useNotifications()
   const notifyRef = useRef(notify)
+  const historyModeRef = useRef('replace')
+  const historyReadyRef = useRef(false)
+  const isPopStateRef = useRef(false)
+
+  const navigateTo = (nextRoute, { replace = false, designId } = {}) => {
+    if (!ROUTES.includes(nextRoute)) return
+    historyModeRef.current = replace ? 'replace' : 'push'
+    if (designId !== undefined) {
+      setCurrentId(designId)
+    }
+    setRoute(nextRoute)
+  }
 
   useEffect(() => {
     notifyRef.current = notify
   }, [notify])
 
   useEffect(() => {
+    if (typeof window === 'undefined') return undefined
+
+    const handlePopState = (event) => {
+      const nextRoute = ROUTES.includes(event.state?.route)
+        ? event.state.route
+        : getStoredToken()
+          ? 'dashboard'
+          : 'landing'
+
+      isPopStateRef.current = true
+      setCurrentId(typeof event.state?.currentId === 'string' ? event.state.currentId : null)
+      setRoute(nextRoute)
+    }
+
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const historyState = {
+      route,
+      currentId: DESIGN_ROUTES.includes(route) ? currentId : null,
+    }
+
+    if (isPopStateRef.current) {
+      isPopStateRef.current = false
+      return
+    }
+
+    if (!historyReadyRef.current) {
+      window.history.replaceState(historyState, '')
+      historyReadyRef.current = true
+      historyModeRef.current = 'push'
+      return
+    }
+
+    if (
+      window.history.state?.route === historyState.route &&
+      window.history.state?.currentId === historyState.currentId
+    ) {
+      historyModeRef.current = 'push'
+      return
+    }
+
+    if (historyModeRef.current === 'replace') {
+      window.history.replaceState(historyState, '')
+    } else {
+      window.history.pushState(historyState, '')
+    }
+    historyModeRef.current = 'push'
+  }, [currentId, route])
+
+  useEffect(() => {
     if (!designs.length) {
+      historyModeRef.current = 'replace'
       setCurrentId(null)
       return
     }
 
     if (!currentId || !designs.some((design) => design.id === currentId)) {
+      historyModeRef.current = 'replace'
       setCurrentId(designs[0].id)
     }
   }, [currentId, designs])
@@ -132,9 +215,13 @@ export default function App() {
 
         setUser(nextUser)
         setDesigns(nextDesigns.map((design) => normalizeDesignSizes(design)))
-        setRoute((previousRoute) =>
-          ['landing', 'login'].includes(previousRoute) ? 'dashboard' : previousRoute,
-        )
+        setRoute((previousRoute) => {
+          if (['landing', 'login'].includes(previousRoute)) {
+            historyModeRef.current = 'replace'
+            return 'dashboard'
+          }
+          return previousRoute
+        })
       })
       .catch((error) => {
         if (cancelled) return
@@ -144,7 +231,7 @@ export default function App() {
         setUser(null)
         setDesigns([])
         setCurrentId(null)
-        setRoute('login')
+        navigateTo('login', { replace: true })
         notifyRef.current(
           isUnauthorizedError(error)
             ? 'Your session expired. Please sign in again.'
@@ -166,7 +253,7 @@ export default function App() {
 
   useEffect(() => {
     if (appReady && !sessionToken && !['landing', 'login'].includes(route)) {
-      setRoute('login')
+      navigateTo('login', { replace: true })
     }
   }, [appReady, route, sessionToken])
 
@@ -196,7 +283,7 @@ export default function App() {
     setUser(null)
     setDesigns([])
     setCurrentId(null)
-    setRoute(nextRoute)
+    navigateTo(nextRoute, { replace: true, designId: null })
     setAppReady(true)
   }
 
@@ -230,7 +317,7 @@ export default function App() {
       setDesigns([])
       setCurrentId(null)
       setSessionToken(response.token)
-      setRoute('dashboard')
+      navigateTo('dashboard', { replace: true, designId: null })
       notify(
         mode === 'register'
           ? `Account created for ${response.user.name}`
@@ -261,8 +348,7 @@ export default function App() {
       )
 
       setDesigns((previousDesigns) => [savedDesign, ...previousDesigns])
-      setCurrentId(savedDesign.id)
-      setRoute('editor-2d')
+      navigateTo('editor-2d', { designId: savedDesign.id })
       notify(`"${savedDesign.name}" is ready for editing.`, 'success', 'Design created')
     } catch (error) {
       handleApiError(error, 'Design')
@@ -309,7 +395,7 @@ export default function App() {
       )
       if (currentId === designId) {
         setCurrentId(null)
-        setRoute('designs')
+        navigateTo('designs', { replace: true, designId: null })
       }
       notify(`"${target.name}" was deleted.`, 'warning', 'Design removed')
     } catch (error) {
@@ -359,8 +445,7 @@ export default function App() {
   }
 
   const openDesign = (id, nextRoute) => {
-    setCurrentId(id)
-    setRoute(nextRoute)
+    navigateTo(nextRoute, { designId: id })
   }
 
   const handleOpenDesign = (id) => openDesign(id, 'editor')
@@ -368,8 +453,7 @@ export default function App() {
   const handleView3d = (id) => openDesign(id, 'viewer-3d')
 
   const navigate = (nextRoute) => {
-    if (!ROUTES.includes(nextRoute)) return
-    setRoute(nextRoute)
+    navigateTo(nextRoute)
   }
 
   const activeNav = ['editor', 'view-design', 'viewer-3d'].includes(route)
@@ -395,8 +479,8 @@ export default function App() {
   if (route === 'landing') {
     return (
       <Landing
-        onLogin={() => setRoute('login')}
-        onStart={() => (sessionToken ? setRoute('dashboard') : setRoute('login'))}
+        onLogin={() => navigateTo('login')}
+        onStart={() => navigateTo(sessionToken ? 'dashboard' : 'login')}
       />
     )
   }
@@ -418,7 +502,7 @@ export default function App() {
         <Dashboard
           user={user}
           designs={designs}
-          onNewDesign={() => setRoute('new-design')}
+          onNewDesign={() => navigateTo('new-design')}
           onOpen={handleOpenDesign}
           onNavigate={navigate}
         />
@@ -433,7 +517,7 @@ export default function App() {
           onView={handleViewDesign}
           onView3d={handleView3d}
           onDelete={handleDeleteDesign}
-          onNewDesign={() => setRoute('new-design')}
+          onNewDesign={() => navigateTo('new-design')}
         />
       )}
       {route === 'new-design' && (
@@ -446,7 +530,7 @@ export default function App() {
           catalog={catalog}
           onUpdateDesign={handleUpdateDesign}
           onSaveDesign={handleSaveDesign}
-          onExit={() => setRoute('designs')}
+          onExit={() => navigateTo('designs')}
           onLogout={handleLogout}
           isSavingDesign={savingDesignId === currentDesign?.id}
         />
@@ -458,7 +542,7 @@ export default function App() {
           catalog={catalog}
           onUpdateDesign={handleUpdateDesign}
           onSaveDesign={handleSaveDesign}
-          onExit={() => setRoute('dashboard')}
+          onExit={() => navigateTo('dashboard')}
           onLogout={handleLogout}
           initialViewMode="2d"
           allowViewToggle
@@ -472,7 +556,7 @@ export default function App() {
           catalog={catalog}
           onUpdateDesign={handleUpdateDesign}
           onSaveDesign={handleSaveDesign}
-          onExit={() => setRoute('designs')}
+          onExit={() => navigateTo('designs')}
           readOnly
           initialViewMode="2d"
           allowViewToggle
@@ -486,7 +570,7 @@ export default function App() {
           catalog={catalog}
           onUpdateDesign={handleUpdateDesign}
           onSaveDesign={handleSaveDesign}
-          onExit={() => setRoute('designs')}
+          onExit={() => navigateTo('designs')}
           readOnly
           initialViewMode="3d"
           allowViewToggle={false}

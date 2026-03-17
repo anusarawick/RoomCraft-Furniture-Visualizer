@@ -475,6 +475,9 @@ input[type='search']:focus {
 }
 
 .ee-nav-logo {
+  background: none;
+  border: none;
+  padding: 0;
   text-align: center;
   cursor: pointer;
 }
@@ -598,6 +601,11 @@ input[type='search']:focus {
 .ee-btn-outline--light:hover {
   background: #fff;
   color: var(--text);
+}
+
+.ee-hero-cta {
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
 }
 
 .ee-link-btn {

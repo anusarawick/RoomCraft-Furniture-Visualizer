@@ -264,6 +264,8 @@ describe('App', () => {
     const user = createTestUser()
     const design = createTestDesign()
 
+    window.history.replaceState(null, '')
+
     storage.clearAuthSession.mockReset()
     storage.loadAuthSession.mockReset()
     storage.loadFromStorage.mockReset()
@@ -291,6 +293,22 @@ describe('App', () => {
     api.deleteDesign.mockResolvedValue(null)
 
     window.confirm = vi.fn(() => true)
+  })
+
+  it('returns to the landing page when browser back is used from login', async () => {
+    const user = userEvent.setup()
+
+    renderApp()
+
+    expect(screen.getByText('Landing Screen')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Go Login' }))
+    expect(screen.getByText('Login Screen')).toBeInTheDocument()
+
+    window.history.back()
+    window.dispatchEvent(new PopStateEvent('popstate', { state: window.history.state }))
+
+    expect(await screen.findByText('Landing Screen')).toBeInTheDocument()
   })
 
   it('hydrates the dashboard from an existing session token', async () => {

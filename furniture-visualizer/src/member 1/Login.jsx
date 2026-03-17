@@ -136,7 +136,6 @@ export default function Login({ onSubmit, isSubmitting = false }) {
                 />
                 <span>Remember me</span>
               </label>
-              <span className="login-form-note">MongoDB-backed account</span>
             </div>
             {error ? <div className="login-form-error">{error}</div> : null}
             <button
@@ -165,9 +164,6 @@ export default function Login({ onSubmit, isSubmitting = false }) {
               {mode === 'login' ? 'Create one' : 'Sign in instead'}
             </button>
           </p>
-          <div className="demo-box">
-            Your account and designs are stored through the Express API and MongoDB.
-          </div>
         </div>
       </div>
     </div>
