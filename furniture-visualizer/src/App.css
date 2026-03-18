@@ -475,6 +475,9 @@ input[type='search']:focus {
 }
 
 .ee-nav-logo {
+  background: none;
+  border: none;
+  padding: 0;
   text-align: center;
   cursor: pointer;
 }
@@ -598,6 +601,11 @@ input[type='search']:focus {
 .ee-btn-outline--light:hover {
   background: #fff;
   color: var(--text);
+}
+
+.ee-hero-cta {
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
 }
 
 .ee-link-btn {
@@ -1709,6 +1717,38 @@ input[type='search']:focus {
 .profile-hero-copy p {
   color: var(--muted);
   font-size: 0.84rem;
+}
+
+.profile-password-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.profile-password-card strong {
+  display: block;
+  color: var(--text);
+  font-size: 0.95rem;
+}
+
+.profile-password-note {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.profile-password-dialog {
+  width: min(520px, 100%);
+}
+
+.profile-dialog-grid {
+  display: grid;
+  gap: 14px;
 }
 
 .detail-list {
@@ -2925,4 +2965,62 @@ input[type='search']:focus {
    ============================ */
 .landing-metrics span {
   display: block;
+}
+
+.login-mode-switch {
+  display: inline-grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  margin-bottom: 18px;
+}
+
+.login-mode-switch button {
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  padding: 10px 18px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.login-mode-switch button.active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 8px 20px rgba(15, 10, 6, 0.08);
+}
+
+.login-form-note {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.login-form-error {
+  border: 1px solid rgba(164, 55, 31, 0.18);
+  background: rgba(164, 55, 31, 0.08);
+  color: #8d321f;
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  font-size: 0.86rem;
+}
+
+.app-loading-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at top, rgba(201, 124, 93, 0.22), transparent 32%),
+    linear-gradient(180deg, #f7f1eb 0%, #f4ece3 100%);
+}
+
+.app-loading-card {
+  width: min(460px, 100%);
+  display: grid;
+  gap: 10px;
+  padding: 32px;
+  text-align: center;
 }

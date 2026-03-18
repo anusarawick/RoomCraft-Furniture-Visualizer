@@ -1,15 +1,16 @@
 # RoomCraft Furniture Visualizer
 
-RoomCraft is a web-based room design system for furniture consultations. It supports accurate 2D planning, interactive 3D visualization, and reusable saved designs.
+RoomCraft is a web-based room design system for furniture consultations. It supports accurate 2D planning, interactive 3D visualization, reusable saved designs, and a full backend for account/profile/design persistence.
 
 ## Core Features
-- Designer login and dashboard workflow.
+- Designer registration, login, and JWT-backed session workflow.
 - Create room specification (size, height, wall/floor colors).
 - 2D layout editor (drag, rotate, resize, shading).
 - Multi-room plan view.
 - 3D viewport with orbit + inside controls.
 - Color and shading controls (room + item + global).
-- Save, edit, delete, and reopen designs.
+- Save, edit, delete, and reopen designs through MongoDB.
+- Profile editing with persisted user information.
 - Undo/redo history support.
 - Accessibility toggles (high contrast, larger text, reduced motion).
 
@@ -23,22 +24,31 @@ RoomCraft is a web-based room design system for furniture consultations. It supp
 - React 19
 - Vite
 - Three.js
-- Browser local storage persistence
+- Node.js + Express
+- MongoDB + Mongoose
+- Docker / Docker Compose
+- Browser local storage for non-account UI preferences only
 
-## Run Locally
+## Run Frontend Locally
 1. `npm install`
 2. `npm run dev`
 3. `npm run lint`
 4. `npm run build`
 
-## Coursework Documentation
-Full report and appendices are included under `docs/`:
-- Main report draft: `docs/report/PUSL3122_Report.md`
-- Design artifacts: `docs/design/`
-- Evaluation artifacts: `docs/evaluation/`
-- Scrum/process artifacts: `docs/scrum/`
+## Run Backend With Docker
+1. Copy `.env.example` to `.env` if you want to override `VITE_API_URL`.
+2. Copy `backend/.env.example` to `backend/.env` if you want to run the API outside Docker.
+3. Start MongoDB and the Express API with `npm run docker:up`.
+4. The API will be available at `http://localhost:4000/api`.
+5. Run the frontend with `npm run dev`.
 
-Before submission:
-- Replace placeholder GitHub/YouTube links in the report.
-- Export report markdown to a single PDF.
-- Insert final screenshots from running app and prototypes.
+## API Coverage
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `GET /api/users/me`
+- `PUT /api/users/me`
+- `GET /api/designs`
+- `POST /api/designs`
+- `GET /api/designs/:designId`
+- `PUT /api/designs/:designId`
+- `DELETE /api/designs/:designId`

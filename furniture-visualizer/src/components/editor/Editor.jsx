@@ -325,6 +325,7 @@ export default function Editor({
   initialViewMode = '2d',
   allowViewToggle = true,
   splitView = false,
+  isSavingDesign = false,
 }) {
   const [viewMode, setViewMode] = useState(initialViewMode)
   const [selectedId, setSelectedId] = useState(null)
@@ -654,15 +655,6 @@ export default function Editor({
     setSelectedId(newItem.id)
     setActiveRoomId(targetRoom.id)
     showStatus(`${item.name} added`, 'success')
-  }
-
-  const handleCatalogDragStart = (event, catalogItemId) => {
-    if (!canEdit) return
-    event.dataTransfer?.setData(CATALOG_ITEM_MIME, catalogItemId)
-    event.dataTransfer?.setData('text/plain', catalogItemId)
-    if (event.dataTransfer) {
-      event.dataTransfer.effectAllowed = 'copy'
-    }
   }
 
   const handleCatalogPointerStart = (event, catalogItemId) => {
@@ -1319,12 +1311,12 @@ export default function Editor({
           <button
             className="btn btn-primary"
             onClick={() => {
-              if (!canEdit) return
+              if (!canEdit || isSavingDesign) return
               onSaveDesign(design.id)
             }}
-            disabled={!canEdit}
+            disabled={!canEdit || isSavingDesign}
           >
-            Save
+            {isSavingDesign ? 'Saving...' : 'Save'}
           </button>
         </div>
       </div>

@@ -1,4 +1,5 @@
 export const STORAGE_KEYS = {
+  authSession: 'fv-auth-session',
   user: 'fv-user',
   designs: 'fv-designs',
   accessibility: 'fv-accessibility',
@@ -50,4 +51,3 @@ export const ITEM_COLOR_PRESETS = [
   { name: 'Walnut', value: '#8B7763' },
   { name: 'Charcoal Blue', value: '#4C5A63' },
 ]
-
