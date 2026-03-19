@@ -26,7 +26,7 @@ describe('Login', () => {
 
     render(<Login onSubmit={onSubmit} />)
 
-    await user.type(screen.getByLabelText('Email Address'), ' jamie@example.com ')
+    await user.type(screen.getByLabelText('Email or Admin Username'), ' jamie@example.com ')
     await user.type(screen.getByLabelText('Password'), 'secret123')
     await user.click(screen.getByLabelText('Remember me'))
     await user.click(screen.getByText('Sign In', { selector: 'button[type="submit"]' }))

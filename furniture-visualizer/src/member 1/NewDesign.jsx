@@ -3,7 +3,11 @@ import ColorSwatchField from '../components/ColorSwatchField'
 import { FLOOR_COLOR_PRESETS, ROOM_SHAPES, WALL_COLOR_PRESETS } from './constants'
 import { getRoomClipPath, isLShapedRoom } from '../utils/roomShape'
 
-export default function NewDesign({ onCreate, isSubmitting = false }) {
+export default function NewDesign({
+  onCreate,
+  isSubmitting = false,
+  mode = 'design',
+}) {
   const [name, setName] = useState('Living')
   const [shape, setShape] = useState('Rectangle')
   const [planType, setPlanType] = useState('single')
@@ -13,10 +17,12 @@ export default function NewDesign({ onCreate, isSubmitting = false }) {
   const [height, setHeight] = useState(2.8)
   const [wallColor, setWallColor] = useState('#F5F0EB')
   const [floorColor, setFloorColor] = useState('#C8A882')
+  const [price, setPrice] = useState(149)
+  const isTemplateMode = mode === 'template'
 
   const handleSubmit = async (event) => {
     event.preventDefault()
-    await onCreate({
+    const payload = {
       name: name ? `${name} Design` : 'New Design',
       room: {
         name,
@@ -29,14 +35,24 @@ export default function NewDesign({ onCreate, isSubmitting = false }) {
       },
       planType,
       roomCount: planType === 'multi' ? Number(roomCount) : 1,
-    })
+    }
+
+    if (isTemplateMode) {
+      payload.price = Number(price)
+    }
+
+    await onCreate(payload)
   }
 
   return (
     <div>
       <div className="dashboard-header" style={{ textAlign: 'center' }}>
-        <h1>New Design</h1>
-        <p>Set up your room specifications to get started.</p>
+        <h1>{isTemplateMode ? 'New Template' : 'New Design'}</h1>
+        <p>
+          {isTemplateMode
+            ? 'Set up a reusable template for customers to preview and purchase.'
+            : 'Set up your room specifications to get started.'}
+        </p>
       </div>
 
       <form className="new-design-grid" onSubmit={handleSubmit}>
@@ -161,6 +177,19 @@ export default function NewDesign({ onCreate, isSubmitting = false }) {
               />
             </label>
           </div>
+          {isTemplateMode && (
+            <label className="field">
+              Template Price (USD)
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={price}
+                onChange={(event) => setPrice(event.target.value)}
+                required
+              />
+            </label>
+          )}
         </div>
 
         <div className="form-card card">
@@ -183,7 +212,13 @@ export default function NewDesign({ onCreate, isSubmitting = false }) {
 
         <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'center' }}>
           <button className="btn btn-primary" type="submit" disabled={isSubmitting}>
-            {isSubmitting ? 'Creating Design...' : 'Create Design'}
+            {isSubmitting
+              ? isTemplateMode
+                ? 'Creating Template...'
+                : 'Creating Design...'
+              : isTemplateMode
+                ? 'Create Template'
+                : 'Create Design'}
           </button>
         </div>
       </form>

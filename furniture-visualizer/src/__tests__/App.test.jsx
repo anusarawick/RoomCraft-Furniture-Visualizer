@@ -17,13 +17,20 @@ const api = vi.hoisted(() => {
   return {
     MockApiError,
     createDesign: vi.fn(),
+    createTemplate: vi.fn(),
     deleteDesign: vi.fn(),
+    deleteTemplate: vi.fn(),
+    getCollection: vi.fn(),
     getCurrentUser: vi.fn(),
     getDesigns: vi.fn(),
+    getRegisteredUsers: vi.fn(),
+    getTemplates: vi.fn(),
     loginUser: vi.fn(),
+    purchaseTemplate: vi.fn(),
     registerUser: vi.fn(),
     updateCurrentUser: vi.fn(),
     updateDesign: vi.fn(),
+    updateTemplate: vi.fn(),
   }
 })
 
@@ -38,14 +45,21 @@ const storage = vi.hoisted(() => ({
 vi.mock('../services/api', () => ({
   ApiError: api.MockApiError,
   createDesign: api.createDesign,
+  createTemplate: api.createTemplate,
   deleteDesign: api.deleteDesign,
+  deleteTemplate: api.deleteTemplate,
+  getCollection: api.getCollection,
   getCurrentUser: api.getCurrentUser,
   getDesigns: api.getDesigns,
+  getRegisteredUsers: api.getRegisteredUsers,
+  getTemplates: api.getTemplates,
   isUnauthorizedError: (error) => error instanceof api.MockApiError && error.status === 401,
   loginUser: api.loginUser,
+  purchaseTemplate: api.purchaseTemplate,
   registerUser: api.registerUser,
   updateCurrentUser: api.updateCurrentUser,
   updateDesign: api.updateDesign,
+  updateTemplate: api.updateTemplate,
 }))
 
 vi.mock('../member 1/storage', () => ({
@@ -223,6 +237,88 @@ vi.mock('../components/Accessibility', () => ({
   ),
 }))
 
+vi.mock('../admin/AdminDashboard', () => ({
+  default: ({ templates, registeredUsers }) => (
+    <div>
+      <div>Admin Dashboard Screen</div>
+      <div>{`Template Count:${templates.length}`}</div>
+      <div>{`User Count:${registeredUsers.length}`}</div>
+    </div>
+  ),
+}))
+
+vi.mock('../admin/AdminUsers', () => ({
+  default: ({ users }) => (
+    <div>
+      <div>Admin Users Screen</div>
+      <div>{`Users:${users.length}`}</div>
+    </div>
+  ),
+}))
+
+vi.mock('../admin/AdminTemplateEditor', () => ({
+  default: ({ template, onUpdateTemplate, onSaveTemplate }) => (
+    <div>
+      <div>Admin Template Editor Screen</div>
+      <div>{`Template:${template?.name || 'none'}`}</div>
+      <button
+        type="button"
+        onClick={() => onUpdateTemplate({ ...template, price: 199 })}
+      >
+        Update Template Price
+      </button>
+      <button type="button" onClick={() => onSaveTemplate(template.id)}>
+        Save Template
+      </button>
+    </div>
+  ),
+}))
+
+vi.mock('../admin/AdminTemplates', () => ({
+  default: ({ templates }) => (
+    <div>
+      <div>Admin Templates Screen</div>
+      <div>{`Templates:${templates.length}`}</div>
+    </div>
+  ),
+}))
+
+vi.mock('../customer/TemplatesMarketplace', () => ({
+  default: ({ templates, purchasedIds, onPurchase }) => (
+    <div>
+      <div>Templates Screen</div>
+      <div>{`Templates:${templates.length}`}</div>
+      <div>{`Purchased:${purchasedIds.length}`}</div>
+      <button type="button" onClick={() => onPurchase(templates[0]?.id)}>
+        Purchase First Template
+      </button>
+    </div>
+  ),
+}))
+
+vi.mock('../customer/CustomerCollection', () => ({
+  default: ({ templates }) => (
+    <div>
+      <div>Collection Screen</div>
+      <div>{`Collection:${templates.length}`}</div>
+    </div>
+  ),
+}))
+
+vi.mock('../customer/PurchaseModal', () => ({
+  default: ({ onConfirm, onClose }) => (
+    <div>
+      <div>Purchase Modal</div>
+      <button type="button" onClick={() => onConfirm({})}>
+        Confirm Purchase
+      </button>
+      <button type="button" onClick={onClose}>
+        Close Purchase
+      </button>
+    </div>
+  ),
+}))
+
 vi.mock('../components/layout/AppShell', () => ({
   default: ({ active, breadcrumbs, onNavigate, onLogout, children }) => (
     <div>
@@ -242,6 +338,15 @@ vi.mock('../components/layout/AppShell', () => ({
       </button>
       <button type="button" onClick={() => onNavigate('accessibility')}>
         Nav Accessibility
+      </button>
+      <button type="button" onClick={() => onNavigate('templates')}>
+        Nav Templates
+      </button>
+      <button type="button" onClick={() => onNavigate('collection')}>
+        Nav Collection
+      </button>
+      <button type="button" onClick={() => onNavigate('admin-dashboard')}>
+        Nav Admin Dashboard
       </button>
       <button type="button" onClick={onLogout}>
         Nav Logout
@@ -273,13 +378,20 @@ describe('App', () => {
     storage.saveToStorage.mockReset()
 
     api.createDesign.mockReset()
+    api.createTemplate.mockReset()
     api.deleteDesign.mockReset()
+    api.deleteTemplate.mockReset()
+    api.getCollection.mockReset()
     api.getCurrentUser.mockReset()
     api.getDesigns.mockReset()
+    api.getRegisteredUsers.mockReset()
+    api.getTemplates.mockReset()
     api.loginUser.mockReset()
+    api.purchaseTemplate.mockReset()
     api.registerUser.mockReset()
     api.updateCurrentUser.mockReset()
     api.updateDesign.mockReset()
+    api.updateTemplate.mockReset()
 
     storage.loadAuthSession.mockReturnValue(null)
     storage.loadFromStorage.mockImplementation((_key, fallback) => fallback)
@@ -287,10 +399,21 @@ describe('App', () => {
     api.loginUser.mockResolvedValue({ token: 'token-1', user })
     api.getCurrentUser.mockResolvedValue(user)
     api.getDesigns.mockResolvedValue([design])
+    api.getTemplates.mockResolvedValue([createTestDesign({ id: 'template-1', name: 'Template One', price: 99 })])
+    api.getCollection.mockResolvedValue([])
+    api.getRegisteredUsers.mockResolvedValue([])
     api.createDesign.mockResolvedValue({
       ...createTestDesign({ id: 'design-2', name: 'Created Design', items: [] }),
     })
+    api.createTemplate.mockResolvedValue({
+      ...createTestDesign({ id: 'template-2', name: 'Created Template', items: [], price: 149 }),
+    })
     api.deleteDesign.mockResolvedValue(null)
+    api.deleteTemplate.mockResolvedValue(null)
+    api.purchaseTemplate.mockResolvedValue({
+      purchased: true,
+      template: createTestDesign({ id: 'template-1', name: 'Template One', price: 99 }),
+    })
 
     window.confirm = vi.fn(() => true)
   })
@@ -321,6 +444,8 @@ describe('App', () => {
     expect(screen.getByText('Design Count:1')).toBeInTheDocument()
     expect(api.getCurrentUser).toHaveBeenCalledWith('token-1')
     expect(api.getDesigns).toHaveBeenCalledWith('token-1')
+    expect(api.getTemplates).toHaveBeenCalledWith('token-1')
+    expect(api.getCollection).toHaveBeenCalledWith('token-1')
   })
 
   it('clears the session and returns to login when bootstrap auth is unauthorized', async () => {
@@ -386,5 +511,45 @@ describe('App', () => {
 
     await waitFor(() => expect(api.createDesign).toHaveBeenCalledWith('token-1', expect.any(Object)))
     expect(await screen.findByText('Design:Created Design')).toBeInTheDocument()
+  })
+
+  it('loads the admin dashboard for the default admin account', async () => {
+    const adminUser = createTestUser({
+      id: 'admin-1',
+      name: 'RoomCraft Admin',
+      email: 'admin@roomcraft.local',
+      accountType: 'admin',
+    })
+
+    storage.loadAuthSession.mockReturnValue({ token: 'admin-token' })
+    api.getCurrentUser.mockResolvedValue(adminUser)
+    api.getTemplates.mockResolvedValue([createTestDesign({ id: 'template-9', name: 'Admin Template' })])
+    api.getRegisteredUsers.mockResolvedValue([createTestUser({ id: 'user-2' })])
+
+    renderApp()
+
+    expect(await screen.findByText('Admin Dashboard Screen')).toBeInTheDocument()
+    expect(screen.getByText('Template Count:1')).toBeInTheDocument()
+    expect(screen.getByText('User Count:1')).toBeInTheDocument()
+  })
+
+  it('adds a purchased template to the customer collection flow', async () => {
+    const user = userEvent.setup()
+
+    storage.loadAuthSession.mockReturnValue({ token: 'token-1' })
+    renderApp()
+
+    expect(await screen.findByText('Dashboard Screen')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Nav Templates' }))
+    expect(await screen.findByText('Templates Screen')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Purchase First Template' }))
+    expect(await screen.findByText('Purchase Modal')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Confirm Purchase' }))
+
+    expect(await screen.findByText('Collection Screen')).toBeInTheDocument()
+    expect(screen.getByText('Collection:1')).toBeInTheDocument()
   })
 })

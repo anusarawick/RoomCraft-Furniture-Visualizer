@@ -3024,3 +3024,168 @@ input[type='search']:focus {
   padding: 32px;
   text-align: center;
 }
+
+.template-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 18px;
+}
+
+.template-card {
+  padding: 20px;
+  display: grid;
+  gap: 14px;
+}
+
+.template-card h3 {
+  margin: 0;
+  color: var(--text);
+}
+
+.template-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.template-price {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.template-copy {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.template-meta-list {
+  display: grid;
+  gap: 10px;
+}
+
+.template-meta-list div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+
+.template-meta-list div:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.template-meta-list strong {
+  color: var(--text);
+}
+
+.template-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.purchase-dialog {
+  width: min(560px, 100%);
+}
+
+.purchase-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: var(--accent-soft);
+  color: var(--text);
+  font-weight: 700;
+}
+
+.purchase-form {
+  display: grid;
+  gap: 14px;
+}
+
+.admin-template-editor-layout {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.admin-template-settings {
+  padding: 18px 20px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.admin-template-settings-copy {
+  display: grid;
+  gap: 8px;
+}
+
+.admin-template-settings-copy h2,
+.admin-template-settings-copy p {
+  margin: 0;
+}
+
+.admin-template-settings-copy p {
+  color: var(--muted);
+}
+
+.admin-template-settings-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 220px) auto auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.template-price-preview {
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  display: grid;
+  gap: 2px;
+  width: fit-content;
+}
+
+.template-price-preview span {
+  font-size: 0.74rem;
+  color: var(--muted);
+}
+
+.template-price-preview strong {
+  color: var(--accent);
+  font-size: 1rem;
+  line-height: 1.1;
+}
+
+.admin-template-editor-shell {
+  flex: 1;
+  min-height: 0;
+}
+
+.admin-template-editor-shell .editor-shell {
+  height: 100%;
+}
+
+@media (max-width: 900px) {
+  .admin-template-settings {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .admin-template-settings-form {
+    grid-template-columns: 1fr;
+  }
+}

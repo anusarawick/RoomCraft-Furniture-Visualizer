@@ -12,9 +12,20 @@ export const requireAuth = (req, res, next) => {
 
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET)
-    req.auth = { userId: payload.sub }
+    req.auth = {
+      userId: payload.sub,
+      accountType: payload.accountType || 'customer',
+    }
     return next()
   } catch {
     return res.status(401).json({ message: 'Invalid or expired session.' })
   }
+}
+
+export const requireAdmin = (req, res, next) => {
+  if (req.auth?.accountType !== 'admin') {
+    return res.status(403).json({ message: 'Admin access is required.' })
+  }
+
+  return next()
 }

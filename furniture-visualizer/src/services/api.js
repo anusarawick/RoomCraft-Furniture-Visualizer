@@ -65,6 +65,11 @@ export const updateCurrentUser = (token, payload) =>
     body: payload,
   })
 
+export const getRegisteredUsers = (token) =>
+  request('/users', {
+    token,
+  })
+
 export const getDesigns = (token) =>
   request('/designs', {
     token,
@@ -87,5 +92,41 @@ export const updateDesign = (token, designId, payload) =>
 export const deleteDesign = (token, designId) =>
   request(`/designs/${designId}`, {
     method: 'DELETE',
+    token,
+  })
+
+export const getTemplates = (token) =>
+  request('/designs/templates', {
+    token,
+  })
+
+export const createTemplate = (token, payload) =>
+  request('/designs/templates', {
+    method: 'POST',
+    token,
+    body: payload,
+  })
+
+export const updateTemplate = (token, designId, payload) =>
+  request(`/designs/templates/${designId}`, {
+    method: 'PUT',
+    token,
+    body: payload,
+  })
+
+export const deleteTemplate = (token, designId) =>
+  request(`/designs/templates/${designId}`, {
+    method: 'DELETE',
+    token,
+  })
+
+export const getCollection = (token) =>
+  request('/designs/collection', {
+    token,
+  })
+
+export const purchaseTemplate = (token, designId) =>
+  request(`/designs/templates/${designId}/purchase`, {
+    method: 'POST',
     token,
   })

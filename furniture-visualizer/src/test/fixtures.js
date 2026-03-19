@@ -5,6 +5,7 @@ export const createTestUser = (overrides = {}) => ({
   name: 'Jamie Designer',
   email: 'jamie@example.com',
   role: 'Designer',
+  accountType: 'customer',
   createdAt: '2025-01-15T12:00:00.000Z',
   ...overrides,
 })
