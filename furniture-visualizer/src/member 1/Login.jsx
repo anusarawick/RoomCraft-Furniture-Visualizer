@@ -76,7 +76,7 @@ export default function Login({ onSubmit, isSubmitting = false }) {
           <h1>{mode === 'login' ? 'Welcome Back' : 'Create Your Account'}</h1>
           <p className="login-subtitle">
             {mode === 'login'
-              ? 'Sign in to continue working on your saved room designs.'
+              ? 'Sign in to continue working on your saved room designs or use the admin username.'
               : 'Create an account to save designs, manage your profile, and sync your work.'}
           </p>
           <form onSubmit={handleSubmit}>
@@ -93,13 +93,13 @@ export default function Login({ onSubmit, isSubmitting = false }) {
               </label>
             )}
             <label className="field">
-              <span>Email Address</span>
+              <span>{mode === 'login' ? 'Email or Admin Username' : 'Email Address'}</span>
               <input
-                type="email"
-                placeholder="you@example.com"
+                type={mode === 'login' ? 'text' : 'email'}
+                placeholder={mode === 'login' ? 'you@example.com or admin' : 'you@example.com'}
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
-                autoComplete="email"
+                autoComplete={mode === 'login' ? 'username' : 'email'}
                 required
               />
             </label>
@@ -137,6 +137,9 @@ export default function Login({ onSubmit, isSubmitting = false }) {
                 <span>Remember me</span>
               </label>
             </div>
+            {mode === 'login' ? (
+              <p className="login-form-note">Default admin login: admin / admin12345</p>
+            ) : null}
             {error ? <div className="login-form-error">{error}</div> : null}
             <button
               className="btn btn-primary btn-lg login-submit"

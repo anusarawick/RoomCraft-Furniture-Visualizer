@@ -10,10 +10,21 @@ const designSchema = new Schema(
       required: true,
       index: true,
     },
+    kind: {
+      type: String,
+      enum: ['design', 'template'],
+      default: 'design',
+      index: true,
+    },
     name: {
       type: String,
       required: true,
       trim: true,
+    },
+    price: {
+      type: Number,
+      default: 0,
+      min: 0,
     },
     room: {
       type: Schema.Types.Mixed,
@@ -56,5 +67,6 @@ const designSchema = new Schema(
 )
 
 designSchema.index({ user: 1, updatedAt: -1 })
+designSchema.index({ kind: 1, updatedAt: -1 })
 
 export const Design = model('Design', designSchema)

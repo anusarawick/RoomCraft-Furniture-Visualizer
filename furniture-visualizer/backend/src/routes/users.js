@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs'
 import express from 'express'
-import { requireAuth } from '../middleware/auth.js'
+import { requireAdmin, requireAuth } from '../middleware/auth.js'
 import { Design } from '../models/Design.js'
 import { User } from '../models/User.js'
 import { asyncHandler } from '../utils/asyncHandler.js'
@@ -81,8 +81,40 @@ router.put('/me', requireAuth, asyncHandler(async (req, res) => {
     ...user.toJSON(),
     stats: {
       designCount,
+      purchasedTemplateCount: user.purchasedTemplates?.length || 0,
     },
   })
+}))
+
+router.get('/', requireAuth, requireAdmin, asyncHandler(async (_req, res) => {
+  const users = await User.find({ accountType: 'customer' }).sort({ createdAt: -1 })
+  const designCounts = await Design.aggregate([
+    {
+      $match: {
+        kind: 'design',
+        user: { $in: users.map((user) => user._id) },
+      },
+    },
+    {
+      $group: {
+        _id: '$user',
+        count: { $sum: 1 },
+      },
+    },
+  ])
+  const designCountMap = new Map(
+    designCounts.map((entry) => [entry._id.toString(), entry.count]),
+  )
+
+  return res.json(
+    users.map((user) => ({
+      ...user.toJSON(),
+      stats: {
+        designCount: designCountMap.get(user.id) || 0,
+        purchasedTemplateCount: user.purchasedTemplates?.length || 0,
+      },
+    })),
+  )
 }))
 
 export default router

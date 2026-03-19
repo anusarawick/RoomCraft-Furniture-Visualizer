@@ -25,6 +25,21 @@ const userSchema = new Schema(
       default: 'Designer',
       trim: true,
     },
+    accountType: {
+      type: String,
+      enum: ['customer', 'admin'],
+      default: 'customer',
+      index: true,
+    },
+    purchasedTemplates: {
+      type: [
+        {
+          type: Schema.Types.ObjectId,
+          ref: 'Design',
+        },
+      ],
+      default: [],
+    },
   },
   {
     timestamps: true,
@@ -32,6 +47,9 @@ const userSchema = new Schema(
       virtuals: true,
       transform: (_doc, ret) => {
         ret.id = ret._id.toString()
+        ret.purchasedTemplates = Array.isArray(ret.purchasedTemplates)
+          ? ret.purchasedTemplates.map((value) => value.toString())
+          : []
         delete ret._id
         delete ret.__v
         delete ret.passwordHash

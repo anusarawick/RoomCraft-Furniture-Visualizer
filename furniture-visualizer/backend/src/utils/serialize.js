@@ -1,5 +1,12 @@
-export const signJwtForUser = (jwt, userId) =>
-  jwt.sign({ sub: userId }, process.env.JWT_SECRET, { expiresIn: '7d' })
+export const signJwtForUser = (jwt, user) =>
+  jwt.sign(
+    {
+      sub: user.id,
+      accountType: user.accountType || 'customer',
+    },
+    process.env.JWT_SECRET,
+    { expiresIn: '7d' },
+  )
 
 export const sanitizeUser = (user) => user.toJSON()
 
@@ -17,6 +24,9 @@ export const normalizeDesignPayload = (payload = {}) => {
       typeof payload.name === 'string' && payload.name.trim()
         ? payload.name.trim()
         : 'Untitled Design',
+    price: Number.isFinite(Number(payload.price))
+      ? Math.max(0, Number(payload.price))
+      : 0,
     room,
     rooms: rooms.length ? rooms : room ? [room] : [],
     items: Array.isArray(payload.items)
